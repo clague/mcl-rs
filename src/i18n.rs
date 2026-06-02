@@ -19,6 +19,22 @@ impl Language {
         }
     }
     
+    /// Returns the language code
+    pub fn code(&self) -> &str {
+        match self {
+            Language::English => "en",
+            Language::Chinese => "zh",
+        }
+    }
+    
+    /// Creates a Language from a language code
+    pub fn from_code(code: &str) -> Language {
+        match code {
+            "zh" | "chinese" | "中文" => Language::Chinese,
+            _ => Language::English,
+        }
+    }
+    
     /// Returns all available languages
     pub fn all() -> Vec<Language> {
         vec![Language::English, Language::Chinese]

@@ -42,6 +42,14 @@ pub struct Config {
     /// List of added Minecraft versions
     #[serde(default)]
     pub added_versions: Vec<VersionInfo>,
+    /// UI language preference ("en" or "zh")
+    #[serde(default = "default_language")]
+    pub language: String,
+}
+
+/// Default language is English
+fn default_language() -> String {
+    "en".to_string()
 }
 
 impl Config {
@@ -154,6 +162,14 @@ impl Config {
             error!("Failed to save version list after removal: {}", e);
         }
     }
+
+    /// Saves the language preference
+    pub fn save_language(&mut self, lang: &str) {
+        self.language = lang.to_string();
+        if let Err(e) = self.save() {
+            error!("Failed to save language preference: {}", e);
+        }
+    }
 }
 
 impl Default for Config {
@@ -172,6 +188,7 @@ impl Default for Config {
             assets_dir: game_dir.join("assets"),
             saved_session: None,
             added_versions: Vec::new(),
+            language: default_language(),
         }
     }
 }

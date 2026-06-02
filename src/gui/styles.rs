@@ -21,7 +21,7 @@ pub fn button_primary(theme: &Theme, status: button::Status) -> button::Style {
         },
         ..Default::default()
     };
-    
+
     match status {
         button::Status::Hovered => button::Style {
             background: Some(Background::Color(palette.primary.strong.color)),
@@ -52,7 +52,7 @@ pub fn button_secondary(theme: &Theme, status: button::Status) -> button::Style 
         },
         ..Default::default()
     };
-    
+
     match status {
         button::Status::Hovered => button::Style {
             background: Some(Background::Color(palette.secondary.strong.color)),
@@ -73,7 +73,7 @@ pub fn button_success(_theme: &Theme, status: button::Status) -> button::Style {
         },
         ..Default::default()
     };
-    
+
     match status {
         button::Status::Hovered => button::Style {
             background: Some(Background::Color(Color::from_rgb(0.25, 0.85, 0.45))),
@@ -99,7 +99,7 @@ pub fn button_danger(_theme: &Theme, status: button::Status) -> button::Style {
         },
         ..Default::default()
     };
-    
+
     match status {
         button::Status::Hovered => button::Style {
             background: Some(Background::Color(Color::from_rgb(0.95, 0.35, 0.35))),
@@ -122,7 +122,7 @@ pub fn button_outline(theme: &Theme, status: button::Status) -> button::Style {
         },
         ..Default::default()
     };
-    
+
     match status {
         button::Status::Hovered => button::Style {
             background: Some(Background::Color(Color::from_rgba(0.2, 0.5, 0.8, 0.1))),
@@ -191,7 +191,7 @@ pub fn progress_bar_style(_theme: &Theme) -> progress_bar::Style {
 
 /// Checkbox style
 pub fn checkbox_style(theme: &Theme, _status: iced::widget::checkbox::Status) -> iced::widget::checkbox::Style {
-    let palette = theme.extended_palette();
+    let _palette = theme.extended_palette();
     iced::widget::checkbox::Style {
         background: Background::Color(Color::from_rgba(0.15, 0.15, 0.2, 0.8)),
         border: Border {

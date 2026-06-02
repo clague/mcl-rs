@@ -78,7 +78,7 @@ pub struct MainWindow {
 impl MainWindow {
     /// Creates a new MainWindow with default state
     pub fn new() -> Self {
-        let config = Config::load();
+        let mut config = Config::load();
         info!("Configuration loaded: auto_update={}", config.auto_update);
         
         // Load saved versions from config
@@ -86,6 +86,11 @@ impl MainWindow {
         if !versions.is_empty() {
             info!("Loaded {} saved versions", versions.len());
         }
+        
+        // Load language preference from config
+        let language = Language::from_code(&config.language);
+        i18n::set_language(language);
+        info!("Language set to: {}", language.display_name());
         
         // Load saved user info for display during token refresh
         let saved_user_info = config.saved_session.as_ref().map(|s| {
@@ -108,7 +113,7 @@ impl MainWindow {
             update_status: None,
             checking_updates: false,
             refreshing_token,
-            language: i18n::get_language(),
+            language,
         }
     }
 
@@ -146,6 +151,9 @@ impl MainWindow {
             Message::LanguageChanged(lang) => {
                 self.language = lang;
                 i18n::set_language(lang);
+                // Save language preference
+                self.config.save_language(lang.code());
+                info!("Language changed to: {}", lang.display_name());
                 Task::none()
             }
             // Handle login messages
