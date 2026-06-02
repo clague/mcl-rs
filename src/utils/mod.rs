@@ -6,3 +6,6 @@ pub mod fs;
 
 /// HTTP client helpers for downloading files
 pub mod net;
+
+/// Font configuration for different platforms
+pub mod font;

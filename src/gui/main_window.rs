@@ -1,7 +1,7 @@
 // Main Window Module
 // Handles the primary application window and coordinates between different views
 
-use iced::widget::{button, column, container, row, text, scrollable, progress_bar};
+use iced::widget::{button, column, container, row, text, scrollable, progress_bar, pick_list};
 use iced::{Element, Length, Alignment, Subscription, Task};
 use log::{info, warn, error, debug};
 
@@ -14,6 +14,7 @@ use crate::gui::login::{Login, Message as LoginMessage};
 use crate::gui::settings::{Settings, Message as SettingsMessage};
 use crate::gui::add_version::{AddVersion, Message as AddVersionMessage};
 use crate::gui::styles;
+use crate::i18n::{self, Language, strings};
 
 /// Messages that can be dispatched to the main window
 #[derive(Debug, Clone)]
@@ -40,6 +41,8 @@ pub enum Message {
     DownloadVersionResult(String, Result<(), String>),
     /// Token refresh result
     TokenRefreshResult(Result<AccountSession, String>),
+    /// Language changed
+    LanguageChanged(Language),
 }
 
 /// Main application state
@@ -68,6 +71,8 @@ pub struct MainWindow {
     checking_updates: bool,
     /// Whether token refresh is in progress
     refreshing_token: bool,
+    /// Current language
+    language: Language,
 }
 
 impl MainWindow {
@@ -103,6 +108,7 @@ impl MainWindow {
             update_status: None,
             checking_updates: false,
             refreshing_token,
+            language: i18n::get_language(),
         }
     }
 
@@ -134,15 +140,18 @@ impl MainWindow {
     }
 
     /// Handles incoming messages and updates state accordingly.
-    /// Returns a Task for any async operations that need to be performed.
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            // Handle language change
+            Message::LanguageChanged(lang) => {
+                self.language = lang;
+                i18n::set_language(lang);
+                Task::none()
+            }
             // Handle login messages
             Message::Login(login_message) => {
-                // Check if login was successful and store the session
                 if let LoginMessage::AuthResult(Ok(ref session)) = login_message {
                     self.session = Some(session.clone());
-                    // Save session for auto-login
                     self.config.save_session(
                         session.minecraft_profile.name.clone(),
                         session.minecraft_profile.id.clone(),
@@ -155,9 +164,7 @@ impl MainWindow {
             }
             // Handle settings messages
             Message::Settings(settings_message) => {
-                // Handle save settings
                 if let SettingsMessage::SaveSettings = &settings_message {
-                    // Update config from settings
                     if let Some(java_path) = self.settings.get_java_path() {
                         self.config.java_path = Some(java_path);
                     }
@@ -166,7 +173,6 @@ impl MainWindow {
                     }
                     self.config.auto_update = self.settings.get_auto_update();
                     
-                    // Save config to file
                     if let Err(e) = self.config.save() {
                         error!("Failed to save config: {}", e);
                     } else {
@@ -177,12 +183,10 @@ impl MainWindow {
             }
             // Handle add version dialog messages
             Message::AddVersion(add_version_message) => {
-                // If user confirmed adding a version, add it to our list
                 if let AddVersionMessage::ConfirmAdd = &add_version_message {
                     if let Some(version_info) = self.add_version.get_selected_version() {
                         self.versions.push(version_info.clone());
                         self.selected_version = Some(self.versions.len() - 1);
-                        // Save version to config
                         self.config.add_version(version_info.clone());
                         info!("Version {} added and saved", version_info.id);
                     }
@@ -190,22 +194,17 @@ impl MainWindow {
                 self.add_version.update(add_version_message)
                     .map(Message::AddVersion)
             }
-            // Handle version selection
             Message::VersionSelected(index) => {
                 self.selected_version = Some(index);
                 Task::none()
             }
-            // Handle launch button click
             Message::LaunchVersion => {
                 if let Some(index) = self.selected_version {
                     if let Some(version) = self.versions.get(index) {
                         if let Some(_session) = &self.session {
                             info!("Preparing to launch version: {}", version.id);
-                            
                             let launch_config = LaunchConfig::from_config(&self.config, &version.id);
                             let version_info = version.clone();
-                            
-                            // Check if version files are ready
                             return Task::perform(
                                 async move {
                                     let check_result = launch::check_version_ready(&launch_config).await;
@@ -220,7 +219,6 @@ impl MainWindow {
                 }
                 Task::none()
             }
-            // Handle launch check result
             Message::LaunchCheckResult(version_id, result) => {
                 match result {
                     LaunchResult::Success => {
@@ -228,12 +226,8 @@ impl MainWindow {
                         if let Some(session) = &self.session {
                             let launch_config = LaunchConfig::from_config(&self.config, &version_id);
                             match launch::launch_game(&launch_config, session) {
-                                Ok(()) => {
-                                    info!("Game launched successfully");
-                                }
-                                Err(e) => {
-                                    error!("Failed to launch game: {}", e);
-                                }
+                                Ok(()) => info!("Game launched successfully"),
+                                Err(e) => error!("Failed to launch game: {}", e),
                             }
                         }
                     }
@@ -242,29 +236,19 @@ impl MainWindow {
                         if let Some(version_info) = self.versions.iter().find(|v| v.id == version_id) {
                             let version_info = version_info.clone();
                             let config = self.config.clone();
-                            
                             return Task::perform(
                                 async move {
-                                    let result = launch::download_version_files(
-                                        &version_info,
-                                        &config,
-                                        |_progress| {
-                                            // TODO: Update progress bar
-                                        },
-                                    ).await;
+                                    let result = launch::download_version_files(&version_info, &config, |_| {}).await;
                                     Message::DownloadVersionResult(version_id, result)
                                 },
                                 |msg| msg,
                             );
                         }
                     }
-                    LaunchResult::Error(e) => {
-                        error!("Launch check failed: {}", e);
-                    }
+                    LaunchResult::Error(e) => error!("Launch check failed: {}", e),
                 }
                 Task::none()
             }
-            // Handle download version result
             Message::DownloadVersionResult(version_id, result) => {
                 match result {
                     Ok(()) => {
@@ -272,61 +256,39 @@ impl MainWindow {
                         if let Some(session) = &self.session {
                             let launch_config = LaunchConfig::from_config(&self.config, &version_id);
                             match launch::launch_game(&launch_config, session) {
-                                Ok(()) => {
-                                    info!("Game launched successfully");
-                                }
-                                Err(e) => {
-                                    error!("Failed to launch game after download: {}", e);
-                                }
+                                Ok(()) => info!("Game launched successfully"),
+                                Err(e) => error!("Failed to launch game after download: {}", e),
                             }
                         }
                     }
-                    Err(e) => {
-                        error!("Failed to download version files: {}", e);
-                    }
+                    Err(e) => error!("Failed to download version files: {}", e),
                 }
                 Task::none()
             }
-            // Update download progress
             Message::DownloadProgress(progress) => {
                 self.download_progress = progress;
                 Task::none()
             }
-            // Periodic tick (can be used for animations or polling)
-            Message::Tick => {
-                Task::none()
-            }
-            // Handle update check result
+            Message::Tick => Task::none(),
             Message::UpdateCheckResult(status) => {
                 self.checking_updates = false;
                 match &status {
-                    UpdateStatus::UpToDate => {
-                        info!("All versions are up to date");
-                    }
+                    UpdateStatus::UpToDate => info!("All versions are up to date"),
                     UpdateStatus::UpdatesAvailable(versions) => {
                         info!("Updates available for {} version(s)", versions.len());
-                        for v in versions {
-                            info!("  - {} ({})", v.id, v.version_type);
-                        }
                     }
-                    UpdateStatus::Error(e) => {
-                        warn!("Update check failed: {}", e);
-                    }
-                    UpdateStatus::Skipped => {
-                        debug!("Update check was skipped");
-                    }
+                    UpdateStatus::Error(e) => warn!("Update check failed: {}", e),
+                    UpdateStatus::Skipped => debug!("Update check was skipped"),
                 }
                 self.update_status = Some(status);
                 Task::none()
             }
-            // Handle token refresh result
             Message::TokenRefreshResult(result) => {
                 self.refreshing_token = false;
                 self.saved_user_info = None;
                 match result {
                     Ok(session) => {
                         info!("Token refreshed successfully for user: {}", session.minecraft_profile.name);
-                        // Update saved session with new tokens
                         self.config.save_session(
                             session.minecraft_profile.name.clone(),
                             session.minecraft_profile.id.clone(),
@@ -337,7 +299,6 @@ impl MainWindow {
                     }
                     Err(e) => {
                         warn!("Failed to refresh token: {}, user needs to login again", e);
-                        // Clear invalid session
                         self.config.clear_session();
                     }
                 }
@@ -346,25 +307,18 @@ impl MainWindow {
         }
     }
 
-    /// Renders the main view based on current state.
-    /// Shows login dialog, add version dialog, settings, or the main window.
+    /// Renders the main view
     pub fn view(&self) -> Element<'_, Message> {
-        // Show login dialog if visible
         if self.login.is_visible() {
             return self.login.view().map(Message::Login);
         }
-
-        // Show add version dialog if visible
         if self.add_version.is_visible() {
             return self.add_version.view().map(Message::AddVersion);
         }
-
-        // Show settings dialog if visible
         if self.settings.is_visible() {
             return self.settings.view().map(Message::Settings);
         }
 
-        // Build the main window layout
         let versions_panel = self.view_versions_panel();
         let account_panel = self.view_account_panel();
         let top_bar = self.view_top_bar();
@@ -372,12 +326,7 @@ impl MainWindow {
 
         let content = column![
             top_bar,
-            row![
-                versions_panel,
-                account_panel,
-            ]
-            .spacing(20)
-            .padding(20),
+            row![versions_panel, account_panel].spacing(20).padding(20),
             status_bar,
         ]
         .spacing(10);
@@ -390,59 +339,56 @@ impl MainWindow {
             .into()
     }
 
-    /// Renders the status bar showing update status and refresh status
     fn view_status_bar(&self) -> Element<'_, Message> {
+        let s = strings();
         let status_text = if self.refreshing_token {
-            text("Refreshing login token...").size(12)
+            text(s.refreshing_token).size(12)
         } else {
             match &self.update_status {
-                Some(UpdateStatus::UpToDate) => {
-                    text("All versions up to date").size(12)
-                }
-                Some(UpdateStatus::UpdatesAvailable(versions)) => {
-                    text(format!("{} update(s) available", versions.len())).size(12)
-                }
-                Some(UpdateStatus::Error(e)) => {
-                    text(format!("Update check failed: {}", e)).size(12)
-                }
-                Some(UpdateStatus::Skipped) => {
-                    text("Auto-update disabled").size(12)
-                }
-                None => {
-                    if self.checking_updates {
-                        text("Checking for updates...").size(12)
-                    } else {
-                        text("").size(12)
-                    }
-                }
+                Some(UpdateStatus::UpToDate) => text(s.all_versions_up_to_date).size(12),
+                Some(UpdateStatus::UpdatesAvailable(v)) => text(s.updates_available.replace("{}", &v.len().to_string())).size(12),
+                Some(UpdateStatus::Error(e)) => text(s.update_check_failed.replace("{}", e)).size(12),
+                Some(UpdateStatus::Skipped) => text(s.auto_update_disabled).size(12),
+                None => if self.checking_updates { text(s.checking_updates).size(12) } else { text("").size(12) },
             }
         };
 
-        container(status_text)
-            .width(Length::Fill)
-            .padding([8, 15])
-            .style(styles::panel_container)
-            .into()
+        // Language selector in bottom right
+        let lang_selector = row![
+            text("Language:").size(12),
+            pick_list(Language::all(), Some(self.language), Message::LanguageChanged)
+                .padding([4, 8]),
+        ]
+        .spacing(5)
+        .align_y(Alignment::Center);
+
+        row![
+            status_text,
+            container(lang_selector).align_x(Alignment::End),
+        ]
+        .spacing(10)
+        .padding([8, 15])
+        .align_y(Alignment::Center)
+        .into()
     }
 
-    /// Renders the versions panel showing the list of added Minecraft versions.
     fn view_versions_panel(&self) -> Element<'_, Message> {
-        // Header with title and add button
+        let s = strings();
+        
         let header = row![
-            text("Versions").size(20).width(Length::Fill),
-            button("+ Add")
+            text(s.versions).size(20).width(Length::Fill),
+            button(s.add)
                 .on_press(Message::AddVersion(AddVersionMessage::ShowAddVersion))
                 .padding([8, 16])
                 .style(styles::button_primary),
         ]
         .align_y(Alignment::Center);
 
-        // Version list or empty state message
         let versions_list = if self.versions.is_empty() {
             container(
                 column![
-                    text("No versions added yet").size(16),
-                    text("Click '+ Add' to add a Minecraft version").size(14),
+                    text(s.no_versions).size(16),
+                    text(s.no_versions_hint).size(14),
                 ]
                 .spacing(10)
                 .align_x(Alignment::Center)
@@ -451,20 +397,18 @@ impl MainWindow {
             .center_y(Length::Fill)
             .padding(30)
         } else {
-            // Build list of version buttons
             let list = self.versions.iter().enumerate().fold(
                 column![].spacing(6),
                 |col, (index, version)| {
                     let is_selected = self.selected_version == Some(index);
-                    let style = if is_selected {
-                        text(format!(" {} [{}]", version.id, version.version_type))
-                            .size(15)
+                    let version_type = if version.version_type == "release" { s.version_type_release } else { s.version_type_snapshot };
+                    let label = if is_selected {
+                        text(format!(" {} [{}]", version.id, version_type)).size(15)
                     } else {
-                        text(format!(" {} [{}]", version.id, version.version_type))
-                            .size(15)
+                        text(format!(" {} [{}]", version.id, version_type)).size(15)
                     };
                     
-                    let btn = button(style)
+                    let btn = button(label)
                         .on_press(Message::VersionSelected(index))
                         .width(Length::Fill)
                         .padding([10, 15])
@@ -473,43 +417,32 @@ impl MainWindow {
                     col.push(btn)
                 },
             );
-            
             container(list)
         };
 
-        let versions_scrollable = scrollable(versions_list)
-            .height(Length::Fill);
+        let versions_scrollable = scrollable(versions_list).height(Length::Fill);
 
-        // Launch button
-        let launch_button = button(
-            text("Launch").size(18)
-        )
-        .on_press_maybe(if self.selected_version.is_some() && self.session.is_some() {
-            Some(Message::LaunchVersion)
-        } else {
-            None
-        })
-        .width(Length::Fill)
-        .padding(14)
-        .style(styles::button_success);
+        let launch_button = button(text(s.launch).size(18))
+            .on_press_maybe(if self.selected_version.is_some() && self.session.is_some() {
+                Some(Message::LaunchVersion)
+            } else {
+                None
+            })
+            .width(Length::Fill)
+            .padding(14)
+            .style(styles::button_success);
 
-        // Hint text for launch button
         let launch_hint = if self.session.is_none() {
-            text("Please login first to launch").size(12)
+            text(s.please_login_first).size(12)
         } else if self.selected_version.is_none() {
-            text("Select a version to launch").size(12)
+            text(s.select_version_to_launch).size(12)
         } else {
             text("").size(12)
         };
 
-        let content = column![
-            header,
-            versions_scrollable,
-            launch_hint,
-            launch_button,
-        ]
-        .spacing(12)
-        .padding(15);
+        let content = column![header, versions_scrollable, launch_hint, launch_button]
+            .spacing(12)
+            .padding(15);
 
         container(content)
             .width(Length::FillPortion(3))
@@ -518,14 +451,14 @@ impl MainWindow {
             .into()
     }
 
-    /// Renders the account panel showing login status and user info.
     fn view_account_panel(&self) -> Element<'_, Message> {
+        let s = strings();
+        
         let account_info = if let Some(session) = &self.session {
-            // Show logged-in user info
             column![
                 text(&session.minecraft_profile.name).size(18),
                 text(format!("ID: {}", &session.minecraft_profile.id[..8])).size(12),
-                button("Logout")
+                button(s.logout)
                     .on_press(Message::Login(LoginMessage::CancelLogin))
                     .padding([8, 16])
                     .style(styles::button_outline),
@@ -533,27 +466,23 @@ impl MainWindow {
             .spacing(10)
             .align_x(Alignment::Center)
         } else if self.refreshing_token {
-            // Show refreshing state with saved user info
             if let Some((username, uuid)) = &self.saved_user_info {
                 column![
                     text(username).size(18),
                     text(format!("ID: {}", &uuid[..8])).size(12),
-                    text("Refreshing token...").size(12),
+                    text(s.refreshing_token).size(12),
                 ]
                 .spacing(10)
                 .align_x(Alignment::Center)
             } else {
-                column![
-                    text("Refreshing login...").size(16),
-                ]
-                .spacing(10)
-                .align_x(Alignment::Center)
+                column![text(s.refreshing_token).size(16)]
+                    .spacing(10)
+                    .align_x(Alignment::Center)
             }
         } else {
-            // Show login prompt
             column![
-                text("Not logged in").size(16),
-                button("Login with Microsoft")
+                text(s.not_logged_in).size(16),
+                button(s.login_with_microsoft)
                     .on_press(Message::Login(LoginMessage::ShowLogin))
                     .padding([10, 20])
                     .style(styles::button_primary),
@@ -563,7 +492,7 @@ impl MainWindow {
         };
 
         let content = column![
-            text("Account").size(20),
+            text(s.account).size(20),
             account_info,
         ]
         .spacing(15)
@@ -577,9 +506,9 @@ impl MainWindow {
             .into()
     }
 
-    /// Renders the top bar with download progress and settings button.
     fn view_top_bar(&self) -> Element<'_, Message> {
-        let title = text("Minecraft Launcher").size(22);
+        let s = strings();
+        let title = text(s.app_title).size(22);
 
         let download_progress = container(
             progress_bar(0.0..=1.0, self.download_progress)
@@ -588,25 +517,19 @@ impl MainWindow {
         .width(Length::Fill)
         .padding([4, 0]);
 
-        let settings_button = button("Settings")
+        let settings_button = button(s.settings)
             .on_press(Message::Settings(SettingsMessage::ShowSettings))
             .padding([8, 16])
             .style(styles::button_secondary);
 
-        row![
-            title,
-            download_progress,
-            settings_button,
-        ]
-        .spacing(15)
-        .padding([10, 15])
-        .align_y(Alignment::Center)
-        .into()
+        row![title, download_progress, settings_button]
+            .spacing(15)
+            .padding([10, 15])
+            .align_y(Alignment::Center)
+            .into()
     }
 
-    /// Returns a subscription that fires a Tick message every 100ms.
     pub fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(std::time::Duration::from_millis(100))
-            .map(|_| Message::Tick)
+        iced::time::every(std::time::Duration::from_millis(100)).map(|_| Message::Tick)
     }
 }

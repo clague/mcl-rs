@@ -7,17 +7,17 @@ mod gui;
 mod core;
 mod config;
 mod utils;
+mod i18n;
 
-use iced::Task;
+use iced::{Task, Settings, Font};
 use log::info;
 
 use gui::main_window::{MainWindow, Message};
+use utils::font;
 
 /// Boot function called once at application startup.
-/// Returns the initial state and any startup tasks.
 fn boot() -> (MainWindow, Task<Message>) {
-    // Initialize the logger with default level info
-    // Set RUST_LOG=debug for more verbose output
+    // Initialize the logger
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
@@ -25,18 +25,27 @@ fn boot() -> (MainWindow, Task<Message>) {
     info!("Minecraft Launcher starting...");
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
     
-    let main_window = MainWindow::new();
+    // Log detected font
+    let font_family = font::get_default_font_family();
+    info!("Detected font family: {}", font_family);
     
-    // Run startup tasks (token refresh and update check)
+    let main_window = MainWindow::new();
     let startup_task = main_window.startup_tasks();
     
     (main_window, startup_task)
 }
 
 /// Application entry point.
-/// Initializes the Iced application with the boot, update, and view functions.
 fn main() -> iced::Result {
+    // Get platform-specific font
+    let default_font = font::get_system_font();
+    info!("Using font: {:?}", default_font);
+    
     iced::application(boot, MainWindow::update, MainWindow::view)
         .subscription(MainWindow::subscription)
+        .settings(Settings {
+            default_font,
+            ..Settings::default()
+        })
         .run()
 }
