@@ -76,20 +76,32 @@ pub struct Strings {
     pub no_versions_hint: &'static str,
     pub version_type_release: &'static str,
     pub version_type_snapshot: &'static str,
+    pub version_settings: &'static str,
+    pub version_number: &'static str,
+    pub version_type: &'static str,
+    pub display_name: &'static str,
+    pub open_folder: &'static str,
+    pub delete_version: &'static str,
+    pub delete_confirm: &'static str,
     
     // Account panel
     pub not_logged_in: &'static str,
     pub login_with_microsoft: &'static str,
+    pub open_browser_to_login: &'static str,
     pub logout: &'static str,
     pub refreshing_token: &'static str,
+    pub refreshing_session: &'static str,
     pub please_login_first: &'static str,
     pub select_version_to_launch: &'static str,
+    pub session_refresh_failed: &'static str,
+    pub refresh_session: &'static str,
     
     // Status bar
     pub all_versions_up_to_date: &'static str,
     pub updates_available: &'static str,
     pub update_check_failed: &'static str,
     pub auto_update_disabled: &'static str,
+    pub session_refresh_failed_hint: &'static str,
     pub checking_updates: &'static str,
     
     // Login dialog
@@ -167,14 +179,25 @@ const EN: Strings = Strings {
     no_versions_hint: "Click '+ Add' to add a Minecraft version",
     version_type_release: "Release",
     version_type_snapshot: "Snapshot",
+    version_settings: "Version Settings",
+    version_number: "Version",
+    version_type: "Type",
+    display_name: "Display Name",
+    open_folder: "Open Folder",
+    delete_version: "Delete Version",
+    delete_confirm: "Delete version files? Shared resources (libraries, assets) will be kept.",
     
     // Account panel
     not_logged_in: "Not logged in",
     login_with_microsoft: "Login with Microsoft",
+    open_browser_to_login: "Open browser to login",
     logout: "Logout",
     refreshing_token: "Refreshing token...",
+    refreshing_session: "Refreshing session, please wait...",
     please_login_first: "Please login first to launch",
     select_version_to_launch: "Select a version to launch",
+    session_refresh_failed: "Session refresh failed",
+    refresh_session: "Refresh Session",
     
     // Status bar
     all_versions_up_to_date: "All versions up to date",
@@ -182,6 +205,7 @@ const EN: Strings = Strings {
     update_check_failed: "Update check failed: {}",
     auto_update_disabled: "Auto-update disabled",
     checking_updates: "Checking for updates...",
+    session_refresh_failed_hint: "Session expired, please refresh or logout",
     
     // Login dialog
     login_with_microsoft_account: "Login with Microsoft Account",
@@ -258,14 +282,25 @@ const ZH: Strings = Strings {
     no_versions_hint: "点击「+ 添加」来添加 Minecraft 版本",
     version_type_release: "正式版",
     version_type_snapshot: "快照版",
+    version_settings: "版本设置",
+    version_number: "版本号",
+    version_type: "类型",
+    display_name: "显示名称",
+    open_folder: "打开文件夹",
+    delete_version: "删除版本",
+    delete_confirm: "删除版本文件？共享资源（libraries、assets）将保留。",
     
     // Account panel
     not_logged_in: "未登录",
     login_with_microsoft: "使用 Microsoft 登录",
+    open_browser_to_login: "打开浏览器登录",
     logout: "退出登录",
     refreshing_token: "正在刷新令牌...",
+    refreshing_session: "正在刷新会话，请稍候...",
     please_login_first: "请先登录再启动游戏",
     select_version_to_launch: "选择一个版本启动",
+    session_refresh_failed: "会话刷新失败",
+    refresh_session: "刷新会话",
     
     // Status bar
     all_versions_up_to_date: "所有版本已是最新",
@@ -273,6 +308,7 @@ const ZH: Strings = Strings {
     update_check_failed: "更新检查失败: {}",
     auto_update_disabled: "自动更新已禁用",
     checking_updates: "正在检查更新...",
+    session_refresh_failed_hint: "会话已过期，请刷新或退出登录",
     
     // Login dialog
     login_with_microsoft_account: "使用 Microsoft 账号登录",
