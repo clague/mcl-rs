@@ -1,9 +1,11 @@
 // Main Window Module
 // Handles the primary application window and coordinates between different views
 
-use iced::widget::{button, column, container, row, text, scrollable, progress_bar, pick_list};
-use iced::{Element, Length, Alignment, Subscription, Task};
+use iced::widget::{button, column, container, row, text, text_input, scrollable, progress_bar, pick_list, Stack, image, canvas};
+use iced::{Element, Length, Alignment, Subscription, Task, Color, Point, Rectangle, Size, Renderer};
+use iced_aw::widget::drop_down::DropDown;
 use log::{info, warn, error, debug};
+use std::collections::HashMap;
 
 use crate::core::auth::{self, AccountSession};
 use crate::core::version::VersionInfo;
@@ -15,6 +17,49 @@ use crate::gui::settings::{Settings, Message as SettingsMessage};
 use crate::gui::add_version::{AddVersion, Message as AddVersionMessage};
 use crate::gui::styles;
 use crate::i18n::{self, Language, strings};
+
+struct Spinner {
+    angle: f32,
+}
+
+impl canvas::Program<Message> for Spinner {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &(),
+        renderer: &Renderer,
+        _theme: &iced::Theme,
+        bounds: Rectangle,
+        _cursor: iced::mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = canvas::Frame::new(renderer, Size::new(bounds.width, bounds.height));
+        let center = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let radius = bounds.width.min(bounds.height) / 2.0 - 2.0;
+
+        let bg_circle = canvas::Path::circle(center, radius);
+        frame.fill(&bg_circle, Color::from_rgba(0.4, 0.4, 0.4, 0.3));
+
+        let start_angle = iced::Radians(self.angle);
+        let end_angle = iced::Radians(self.angle + std::f32::consts::PI * 1.5);
+        let arc = canvas::Path::new(|builder| {
+            builder.arc(canvas::path::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+            });
+        });
+        frame.stroke(
+            &arc,
+            canvas::Stroke::default()
+                .with_color(Color::WHITE)
+                .with_width(2.0),
+        );
+
+        vec![frame.into_geometry()]
+    }
+}
 
 /// Messages that can be dispatched to the main window
 #[derive(Debug, Clone)]
@@ -43,6 +88,30 @@ pub enum Message {
     TokenRefreshResult(Result<AccountSession, String>),
     /// Language changed
     LanguageChanged(Language),
+    /// Toggle account dropdown menu
+    ToggleAccountMenu,
+    /// Manually refresh account session
+    RefreshSession,
+    /// Avatar image fetched
+    AvatarFetched(Result<Vec<u8>, String>),
+    /// Toggle version settings panel
+    ToggleVersionSettings,
+    /// Display name input changed
+    DisplayNameChanged(String),
+    /// Save display name for selected version
+    SaveDisplayName,
+    /// Open version folder in file manager
+    OpenVersionFolder,
+    /// Delete selected version
+    DeleteVersion,
+    /// Show delete confirmation dialog
+    ShowDeleteConfirm,
+    /// Confirm version deletion
+    ConfirmDelete,
+    /// Cancel version deletion
+    CancelDelete,
+    /// Version icon fetched (icon_name, bytes)
+    IconFetched(String, Result<Vec<u8>, String>),
 }
 
 /// Main application state
@@ -71,14 +140,30 @@ pub struct MainWindow {
     checking_updates: bool,
     /// Whether token refresh is in progress
     refreshing_token: bool,
+    /// Whether token refresh has failed
+    token_refresh_failed: bool,
+    /// Whether account dropdown menu is shown
+    show_account_menu: bool,
     /// Current language
     language: Language,
+    /// Cached avatar image handle
+    avatar: Option<image::Handle>,
+    /// Cached version icon handles (icon_name -> Handle)
+    version_icons: HashMap<String, image::Handle>,
+    /// Animation tick counter for spinner
+    animation_tick: u32,
+    /// Whether version settings panel is shown
+    show_version_settings: bool,
+    /// Display name being edited
+    editing_display_name: String,
+    /// Whether delete confirmation dialog is shown
+    show_delete_confirm: bool,
 }
 
 impl MainWindow {
     /// Creates a new MainWindow with default state
     pub fn new() -> Self {
-        let mut config = Config::load();
+        let config = Config::load();
         info!("Configuration loaded: auto_update={}", config.auto_update);
         
         // Load saved versions from config
@@ -100,6 +185,8 @@ impl MainWindow {
         
         let refreshing_token = saved_user_info.is_some();
         
+        let avatar = Self::load_cached_avatar();
+        
         Self {
             login: Login::new(),
             session: None,
@@ -113,6 +200,14 @@ impl MainWindow {
             update_status: None,
             checking_updates: false,
             refreshing_token,
+            token_refresh_failed: false,
+            show_account_menu: false,
+            avatar,
+            version_icons: HashMap::new(),
+            animation_tick: 0,
+            show_version_settings: false,
+            editing_display_name: String::new(),
+            show_delete_confirm: false,
             language,
         }
     }
@@ -144,6 +239,28 @@ impl MainWindow {
         Task::batch(tasks)
     }
 
+    pub fn load_version_icons(&self) -> Task<Message> {
+        let mut tasks = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for version in &self.versions {
+            let icon_name = if version.icon_name.is_empty() {
+                crate::core::version::random_icon()
+            } else {
+                version.icon_name.clone()
+            };
+            if seen.insert(icon_name.clone()) {
+                tasks.push(Task::perform(
+                    async move {
+                        let result = Self::fetch_icon_bytes(&icon_name).await;
+                        Message::IconFetched(icon_name, result)
+                    },
+                    |msg| msg,
+                ));
+            }
+        }
+        Task::batch(tasks)
+    }
+
     /// Handles incoming messages and updates state accordingly.
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
@@ -156,17 +273,53 @@ impl MainWindow {
                 info!("Language changed to: {}", lang.display_name());
                 Task::none()
             }
+            Message::ToggleAccountMenu => {
+                self.show_account_menu = !self.show_account_menu;
+                Task::none()
+            }
+            Message::RefreshSession => {
+                if let Some(ref saved_session) = self.config.saved_session {
+                    info!("Manually refreshing session for user: {}", saved_session.username);
+                    self.refreshing_token = true;
+                    self.token_refresh_failed = false;
+                    let refresh_token = saved_session.refresh_token.clone();
+                    Task::perform(
+                        async move { auth::refresh_session(&refresh_token).await },
+                        Message::TokenRefreshResult,
+                    )
+                } else {
+                    Task::none()
+                }
+            }
             // Handle login messages
             Message::Login(login_message) => {
-                if let LoginMessage::AuthResult(Ok(ref session)) = login_message {
-                    self.session = Some(session.clone());
-                    self.config.save_session(
-                        session.minecraft_profile.name.clone(),
-                        session.minecraft_profile.id.clone(),
-                        session.access_token.clone(),
-                        session.refresh_token.clone(),
-                    );
-                    info!("Session saved for user: {}", session.minecraft_profile.name);
+                match &login_message {
+                    LoginMessage::CancelLogin => {
+                        self.session = None;
+                        self.config.clear_session();
+                        self.show_account_menu = false;
+                    }
+                    LoginMessage::ShowLogin => {
+                        self.show_account_menu = false;
+                    }
+                    LoginMessage::AuthResult(Ok(session)) => {
+                        let uuid = session.minecraft_profile.id.clone();
+                        self.session = Some(session.clone());
+                        self.show_account_menu = false;
+                        self.avatar = None;
+                        self.config.save_session(
+                            session.minecraft_profile.name.clone(),
+                            session.minecraft_profile.id.clone(),
+                            session.access_token.clone(),
+                            session.refresh_token.clone(),
+                        );
+                        info!("Session saved for user: {}", session.minecraft_profile.name);
+                        return Task::perform(
+                            async move { Self::fetch_avatar_bytes(&uuid).await },
+                            Message::AvatarFetched,
+                        );
+                    }
+                    _ => {}
                 }
                 self.login.update(login_message).map(Message::Login)
             }
@@ -192,11 +345,24 @@ impl MainWindow {
             // Handle add version dialog messages
             Message::AddVersion(add_version_message) => {
                 if let AddVersionMessage::ConfirmAdd = &add_version_message {
-                    if let Some(version_info) = self.add_version.get_selected_version() {
+                    if let Some(version_info_ref) = self.add_version.get_selected_version() {
+                        let mut version_info = version_info_ref.clone();
+                        version_info.icon_name = crate::core::version::random_icon();
+                        let icon_name = version_info.icon_name.clone();
+                        let needs_fetch = !self.version_icons.contains_key(&icon_name);
                         self.versions.push(version_info.clone());
                         self.selected_version = Some(self.versions.len() - 1);
                         self.config.add_version(version_info.clone());
-                        info!("Version {} added and saved", version_info.id);
+                        info!("Version {} added and saved with icon: {}", version_info.id, icon_name);
+                        if needs_fetch {
+                            return Task::perform(
+                                async move {
+                                    let result = Self::fetch_icon_bytes(&icon_name).await;
+                                    Message::IconFetched(icon_name, result)
+                                },
+                                |msg| msg,
+                            );
+                        }
                     }
                 }
                 self.add_version.update(add_version_message)
@@ -204,6 +370,14 @@ impl MainWindow {
             }
             Message::VersionSelected(index) => {
                 self.selected_version = Some(index);
+                self.show_version_settings = true;
+                if let Some(version) = self.versions.get(index) {
+                    self.editing_display_name = if version.display_name.is_empty() {
+                        version.id.clone()
+                    } else {
+                        version.display_name.clone()
+                    };
+                }
                 Task::none()
             }
             Message::LaunchVersion => {
@@ -277,7 +451,10 @@ impl MainWindow {
                 self.download_progress = progress;
                 Task::none()
             }
-            Message::Tick => Task::none(),
+            Message::Tick => {
+                self.animation_tick = self.animation_tick.wrapping_add(1);
+                Task::none()
+            }
             Message::UpdateCheckResult(status) => {
                 self.checking_updates = false;
                 match &status {
@@ -297,6 +474,7 @@ impl MainWindow {
                 match result {
                     Ok(session) => {
                         info!("Token refreshed successfully for user: {}", session.minecraft_profile.name);
+                        let uuid = session.minecraft_profile.id.clone();
                         self.config.save_session(
                             session.minecraft_profile.name.clone(),
                             session.minecraft_profile.id.clone(),
@@ -304,15 +482,230 @@ impl MainWindow {
                             session.refresh_token.clone(),
                         );
                         self.session = Some(session);
+                        self.avatar = None;
+                        return Task::perform(
+                            async move { Self::fetch_avatar_bytes(&uuid).await },
+                            Message::AvatarFetched,
+                        );
                     }
                     Err(e) => {
-                        warn!("Failed to refresh token: {}, user needs to login again", e);
-                        self.config.clear_session();
+                        warn!("Failed to refresh token: {}", e);
+                        self.token_refresh_failed = true;
                     }
                 }
                 Task::none()
             }
+            Message::AvatarFetched(result) => {
+                match result {
+                    Ok(bytes) => {
+                        info!("Avatar fetched successfully ({} bytes)", bytes.len());
+                        Self::save_cached_avatar(&bytes);
+                        self.avatar = Some(image::Handle::from_bytes(bytes));
+                    }
+                    Err(e) => warn!("Failed to fetch avatar: {}", e),
+                }
+                Task::none()
+            }
+            Message::IconFetched(icon_name, result) => {
+                match result {
+                    Ok(bytes) => {
+                        info!("Icon '{}' fetched ({} bytes)", icon_name, bytes.len());
+                        self.version_icons.insert(icon_name.clone(), image::Handle::from_bytes(bytes));
+                        // Persist icon_name for versions that didn't have one
+                        for version in &mut self.versions {
+                            if version.icon_name.is_empty() {
+                                version.icon_name = icon_name.clone();
+                            }
+                        }
+                        self.config.added_versions = self.versions.clone();
+                        let _ = self.config.save();
+                    }
+                    Err(e) => warn!("Failed to fetch icon '{}': {}", icon_name, e),
+                }
+                Task::none()
+            }
+            Message::ToggleVersionSettings => {
+                if self.show_version_settings {
+                    self.show_version_settings = false;
+                } else if let Some(idx) = self.selected_version {
+                    if let Some(version) = self.versions.get(idx) {
+                        let name = if version.display_name.is_empty() {
+                            version.id.clone()
+                        } else {
+                            version.display_name.clone()
+                        };
+                        self.editing_display_name = name;
+                        self.show_version_settings = true;
+                    }
+                }
+                Task::none()
+            }
+            Message::DisplayNameChanged(name) => {
+                self.editing_display_name = name;
+                Task::none()
+            }
+            Message::SaveDisplayName => {
+                if let Some(idx) = self.selected_version {
+                    if let Some(version) = self.versions.get_mut(idx) {
+                        version.display_name = self.editing_display_name.clone();
+                    }
+                    self.config.added_versions = self.versions.clone();
+                    if let Err(e) = self.config.save() {
+                        error!("Failed to save display name: {}", e);
+                    } else if let Some(version) = self.versions.get(idx) {
+                        info!("Display name saved for version {}", version.id);
+                    }
+                }
+                Task::none()
+            }
+            Message::OpenVersionFolder => {
+                if let Some(idx) = self.selected_version {
+                    if let Some(version) = self.versions.get(idx) {
+                        let folder = self.config.versions_dir.join(&version.id);
+                        if folder.exists() {
+                            return Task::perform(
+                                async move {
+                                    let _ = open::that(&folder);
+                                },
+                                |_| Message::Tick,
+                            );
+                        } else {
+                            warn!("Version folder does not exist: {:?}", folder);
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::DeleteVersion => {
+                self.show_delete_confirm = true;
+                Task::none()
+            }
+            Message::ShowDeleteConfirm => {
+                self.show_delete_confirm = true;
+                Task::none()
+            }
+            Message::ConfirmDelete => {
+                self.show_delete_confirm = false;
+                if let Some(idx) = self.selected_version {
+                    if let Some(version) = self.versions.get(idx) {
+                        let version_id = version.id.clone();
+                        let version_dir = self.config.versions_dir.join(&version_id);
+
+                        if version_dir.exists() {
+                            match std::fs::remove_dir_all(&version_dir) {
+                                Ok(()) => info!("Deleted version directory: {:?}", version_dir),
+                                Err(e) => error!("Failed to delete version directory: {}", e),
+                            }
+                        }
+
+                        self.versions.remove(idx);
+                        self.config.remove_version(&version_id);
+                        self.selected_version = None;
+                        self.show_version_settings = false;
+                        info!("Version {} deleted", version_id);
+                    }
+                }
+                Task::none()
+            }
+            Message::CancelDelete => {
+                self.show_delete_confirm = false;
+                Task::none()
+            }
         }
+    }
+
+    async fn fetch_avatar_bytes(uuid: &str) -> Result<Vec<u8>, String> {
+        let url = format!("https://api.mineatar.io/face/{}?scale=4", uuid);
+        info!("Fetching avatar from: {}", url);
+
+        let mut builder = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10));
+
+        if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
+            .or_else(|_| std::env::var("https_proxy"))
+            .or_else(|_| std::env::var("ALL_PROXY"))
+            .or_else(|_| std::env::var("all_proxy"))
+        {
+            if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+                builder = builder.proxy(proxy);
+            }
+        }
+
+        let client = builder.build().map_err(|e| e.to_string())?;
+        let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            return Err(format!("Avatar request failed: {}", resp.status()));
+        }
+
+        resp.bytes().await
+            .map(|b| b.to_vec())
+            .map_err(|e| e.to_string())
+    }
+
+    fn avatar_cache_path() -> std::path::PathBuf {
+        dirs::config_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("mcl-rs")
+            .join("avatar.png")
+    }
+
+    fn load_cached_avatar() -> Option<image::Handle> {
+        let path = Self::avatar_cache_path();
+        if path.exists() {
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    info!("Loaded cached avatar from {:?}", path);
+                    Some(image::Handle::from_bytes(bytes))
+                }
+                Err(e) => {
+                    warn!("Failed to read cached avatar: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    fn save_cached_avatar(bytes: &[u8]) {
+        let path = Self::avatar_cache_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match std::fs::write(&path, bytes) {
+            Ok(()) => info!("Avatar cached to {:?}", path),
+            Err(e) => warn!("Failed to cache avatar: {}", e),
+        }
+    }
+
+    async fn fetch_icon_bytes(icon_name: &str) -> Result<Vec<u8>, String> {
+        let url = format!("https://mc-heads.net/head/{}", icon_name);
+        info!("Fetching icon from: {}", url);
+
+        let mut builder = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10));
+
+        if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
+            .or_else(|_| std::env::var("https_proxy"))
+            .or_else(|_| std::env::var("ALL_PROXY"))
+            .or_else(|_| std::env::var("all_proxy"))
+        {
+            if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+                builder = builder.proxy(proxy);
+            }
+        }
+
+        let client = builder.build().map_err(|e| e.to_string())?;
+        let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            return Err(format!("Icon request failed: {}", resp.status()));
+        }
+
+        resp.bytes().await
+            .map(|b| b.to_vec())
+            .map_err(|e| e.to_string())
     }
 
     /// Renders the main view
@@ -326,53 +719,99 @@ impl MainWindow {
         if self.settings.is_visible() {
             return self.settings.view().map(Message::Settings);
         }
+        if self.show_delete_confirm {
+            return self.view_delete_confirm();
+        }
 
-        let versions_panel = self.view_versions_panel();
-        let account_panel = self.view_account_panel();
         let top_bar = self.view_top_bar();
         let status_bar = self.view_status_bar();
 
+        let versions_area: Element<'_, Message> = if self.show_version_settings && self.selected_version.is_some() {
+            container(
+                row![
+                    container(self.view_versions_panel())
+                        .width(Length::FillPortion(3))
+                        .height(Length::Fill),
+                    self.view_version_settings(),
+                ]
+                .spacing(10)
+                .height(Length::Fill)
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(20)
+            .into()
+        } else {
+            container(self.view_versions_panel())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .padding(20)
+                .into()
+        };
+
         let content = column![
             top_bar,
-            row![versions_panel, account_panel].spacing(20).padding(20),
+            versions_area,
             status_bar,
         ]
         .spacing(10);
 
-        container(content)
+        let content = container(content)
             .width(Length::Fill)
-            .height(Length::Fill)
+            .height(Length::Fill);
+
+        content.into()
+    }
+
+    fn view_delete_confirm(&self) -> Element<'_, Message> {
+        let s = strings();
+        let content = column![
+            text(s.delete_version).size(22),
+            text(s.delete_confirm).size(16),
+            row![
+                button(s.cancel)
+                    .on_press(Message::CancelDelete)
+                    .padding([10, 20])
+                    .style(styles::button_secondary),
+                button(s.delete_version)
+                    .on_press(Message::ConfirmDelete)
+                    .padding([10, 20])
+                    .style(styles::button_danger),
+            ].spacing(10),
+        ].spacing(15).padding(30).max_width(400);
+
+        container(content)
             .center_x(Length::Fill)
             .center_y(Length::Fill)
+            .style(styles::card_container)
             .into()
     }
 
     fn view_status_bar(&self) -> Element<'_, Message> {
         let s = strings();
-        let status_text = if self.refreshing_token {
-            text(s.refreshing_token).size(12)
+        let status_text: Element<'_, Message> = if self.refreshing_token {
+            text(s.refreshing_token).size(16).into()
+        } else if self.token_refresh_failed {
+            row![
+                text(s.session_refresh_failed_hint).size(16).color(Color::from_rgba(1.0, 0.6, 0.2, 1.0)),
+                button(text(s.refresh_session).size(14))
+                    .on_press(Message::RefreshSession)
+                    .style(styles::button_primary)
+                    .padding([2, 8]),
+            ].spacing(8).align_y(Alignment::Center).into()
         } else {
             match &self.update_status {
-                Some(UpdateStatus::UpToDate) => text(s.all_versions_up_to_date).size(12),
-                Some(UpdateStatus::UpdatesAvailable(v)) => text(s.updates_available.replace("{}", &v.len().to_string())).size(12),
-                Some(UpdateStatus::Error(e)) => text(s.update_check_failed.replace("{}", e)).size(12),
-                Some(UpdateStatus::Skipped) => text(s.auto_update_disabled).size(12),
-                None => if self.checking_updates { text(s.checking_updates).size(12) } else { text("").size(12) },
+                Some(UpdateStatus::UpToDate) => text(s.all_versions_up_to_date).size(16).into(),
+                Some(UpdateStatus::UpdatesAvailable(v)) => text(s.updates_available.replace("{}", &v.len().to_string())).size(16).into(),
+                Some(UpdateStatus::Error(e)) => text(s.update_check_failed.replace("{}", e)).size(16).into(),
+                Some(UpdateStatus::Skipped) => text(s.auto_update_disabled).size(16).into(),
+                None => if self.checking_updates { text(s.checking_updates).size(16).into() } else { text("").size(16).into() },
             }
         };
 
-        // Language selector in bottom right
-        let lang_selector = row![
-            text("Language:").size(12),
-            pick_list(Language::all(), Some(self.language), Message::LanguageChanged)
-                .padding([4, 8]),
-        ]
-        .spacing(5)
-        .align_y(Alignment::Center);
-
         row![
             status_text,
-            container(lang_selector).align_x(Alignment::End),
+            container(iced::widget::row![]).align_x(Alignment::End),
         ]
         .spacing(10)
         .padding([8, 15])
@@ -380,11 +819,168 @@ impl MainWindow {
         .into()
     }
 
+    fn view_account_dropdown(&self) -> Element<'_, Message> {
+        let s = strings();
+
+        let content = if self.token_refresh_failed {
+            let username = self.saved_user_info.as_ref()
+                .map(|(name, _)| name.as_str())
+                .unwrap_or("Unknown");
+            column![
+                text(username).size(16),
+                text(s.session_refresh_failed).size(14).color(Color::from_rgba(1.0, 0.4, 0.4, 1.0)),
+                row![
+                    button(s.refresh_session)
+                        .on_press(Message::RefreshSession)
+                        .style(styles::button_primary)
+                        .padding([4, 12]),
+                    button(s.logout)
+                        .on_press(Message::Login(LoginMessage::CancelLogin))
+                        .style(styles::button_outline)
+                        .padding([4, 12]),
+                ].spacing(8),
+            ]
+            .spacing(8)
+            .align_x(Alignment::Center)
+        } else if let Some(session) = &self.session {
+            let mut items: Vec<Element<'_, Message>> = Vec::new();
+            if let Some(avatar_handle) = &self.avatar {
+                items.push(
+                    image(avatar_handle.clone())
+                        .width(Length::Fixed(48.0))
+                        .height(Length::Fixed(48.0))
+                        .into()
+                );
+            }
+            items.push(text(&session.minecraft_profile.name).size(16).into());
+            items.push(text(format!("ID: {}", &session.minecraft_profile.id[..8])).size(14).into());
+            items.push(
+                button(s.logout)
+                    .on_press(Message::Login(LoginMessage::CancelLogin))
+                    .style(styles::button_outline)
+                    .padding([4, 12])
+                    .into()
+            );
+            iced::widget::Column::from_vec(items)
+                .spacing(8)
+                .align_x(Alignment::Center)
+        } else if let Some((username, uuid)) = &self.saved_user_info {
+            column![
+                text(username).size(16),
+                text(format!("ID: {}", &uuid[..8])).size(14),
+                text(s.refreshing_token).size(14),
+            ]
+            .spacing(8)
+            .align_x(Alignment::Center)
+        } else {
+            column![
+                text(s.not_logged_in).size(16),
+                button(s.open_browser_to_login)
+                    .on_press(Message::Login(LoginMessage::ShowLogin))
+                    .style(styles::button_primary)
+                    .padding([6, 14]),
+            ]
+            .spacing(8)
+            .align_x(Alignment::Center)
+        };
+
+        container(content)
+            .style(styles::card_container)
+            .padding(12)
+            .into()
+    }
+
+    fn view_version_settings(&self) -> Element<'_, Message> {
+        let s = strings();
+
+        let content = if let Some(idx) = self.selected_version {
+            if let Some(version) = self.versions.get(idx) {
+                let display_name = if version.display_name.is_empty() {
+                    &version.id
+                } else {
+                    &version.display_name
+                };
+
+                let mut items: Vec<Element<'_, Message>> = Vec::new();
+                let title_row = if let Some(icon_handle) = self.version_icons.get(&version.icon_name) {
+                    row![
+                        text(s.version_settings).size(20).width(Length::Fill),
+                        image(icon_handle.clone())
+                            .width(Length::Fixed(48.0))
+                            .height(Length::Fixed(48.0)),
+                    ]
+                    .align_y(Alignment::Center)
+                    .into()
+                } else {
+                    text(s.version_settings).size(20).into()
+                };
+                items.push(title_row);
+                items.push(
+                    row![
+                        text(format!("{}: {}", s.version_number, version.id)).size(14),
+                        text(format!("{}: {}", s.version_type, if version.version_type == "release" { s.version_type_release } else { s.version_type_snapshot })).size(14),
+                    ]
+                    .spacing(16)
+                    .into()
+                );
+                items.push(text(s.display_name).size(16).into());
+                items.push(
+                    text_input(display_name, &self.editing_display_name)
+                        .on_input(Message::DisplayNameChanged)
+                        .on_submit(Message::SaveDisplayName)
+                        .padding([8, 12])
+                        .width(Length::Fill)
+                        .into()
+                );
+                items.push(
+                    button(container(text(s.save)).center_x(Length::Fill))
+                        .on_press(Message::SaveDisplayName)
+                        .padding([8, 16])
+                        .width(Length::Fill)
+                        .style(styles::button_primary)
+                        .into()
+                );
+                items.push(
+                    button(container(text(s.open_folder)).center_x(Length::Fill))
+                        .on_press(Message::OpenVersionFolder)
+                        .padding([8, 16])
+                        .width(Length::Fill)
+                        .style(styles::button_secondary)
+                        .into()
+                );
+                items.push(
+                    button(container(text(s.delete_version)).center_x(Length::Fill))
+                        .on_press(Message::DeleteVersion)
+                        .padding([8, 16])
+                        .width(Length::Fill)
+                        .style(styles::button_danger)
+                        .into()
+                );
+
+                iced::widget::Column::from_vec(items)
+                    .spacing(12)
+                    .padding(20)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+            } else {
+                column![]
+            }
+        } else {
+            column![]
+        };
+
+        container(content)
+            .width(Length::FillPortion(1))
+            .height(Length::Fill)
+            .style(styles::card_container)
+            .into()
+    }
+
     fn view_versions_panel(&self) -> Element<'_, Message> {
         let s = strings();
         
         let header = row![
-            text(s.versions).size(20).width(Length::Fill),
+            text(s.versions).size(22).width(Length::Fill),
             button(s.add)
                 .on_press(Message::AddVersion(AddVersionMessage::ShowAddVersion))
                 .padding([8, 16])
@@ -395,8 +991,8 @@ impl MainWindow {
         let versions_list = if self.versions.is_empty() {
             container(
                 column![
-                    text(s.no_versions).size(16),
-                    text(s.no_versions_hint).size(14),
+                    text(s.no_versions).size(18),
+                    text(s.no_versions_hint).size(16),
                 ]
                 .spacing(10)
                 .align_x(Alignment::Center)
@@ -410,11 +1006,31 @@ impl MainWindow {
                 |col, (index, version)| {
                     let is_selected = self.selected_version == Some(index);
                     let version_type = if version.version_type == "release" { s.version_type_release } else { s.version_type_snapshot };
-                    let label = if is_selected {
-                        text(format!(" {} [{}]", version.id, version_type)).size(15)
+                    let display_name = if version.display_name.is_empty() {
+                        version.id.clone()
                     } else {
-                        text(format!(" {} [{}]", version.id, version_type)).size(15)
+                        version.display_name.clone()
                     };
+                    
+                    let mut row_items: Vec<Element<'_, Message>> = Vec::new();
+                    if let Some(icon_handle) = self.version_icons.get(&version.icon_name) {
+                        row_items.push(
+                            image(icon_handle.clone())
+                                .width(Length::Fixed(32.0))
+                                .height(Length::Fixed(32.0))
+                                .into()
+                        );
+                    }
+                    row_items.push(
+                        column![
+                            text(display_name).size(17),
+                            text(format!("{} · {}", version.id, version_type)).size(13),
+                        ]
+                        .spacing(2)
+                        .into()
+                    );
+                    
+                    let label = row![iced::widget::Row::from_vec(row_items).align_y(Alignment::Center).spacing(10)];
                     
                     let btn = button(label)
                         .on_press(Message::VersionSelected(index))
@@ -430,29 +1046,51 @@ impl MainWindow {
 
         let versions_scrollable = scrollable(versions_list).height(Length::Fill);
 
-        let launch_button = button(text(s.launch).size(18))
+        let launch_hint = if self.refreshing_token {
+            text(s.refreshing_session).size(18)
+        } else if self.session.is_none() {
+            text(s.please_login_first).size(18)
+        } else if self.selected_version.is_none() {
+            text(s.select_version_to_launch).size(18)
+        } else {
+            text("").size(18)
+        };
+
+        let launch_button = button(text(s.launch).size(20))
             .on_press_maybe(if self.selected_version.is_some() && self.session.is_some() {
                 Some(Message::LaunchVersion)
             } else {
                 None
             })
-            .width(Length::Fill)
-            .padding(14)
+            .padding([10, 24])
             .style(styles::button_success);
 
-        let launch_hint = if self.session.is_none() {
-            text(s.please_login_first).size(12)
-        } else if self.selected_version.is_none() {
-            text(s.select_version_to_launch).size(12)
-        } else {
-            text("").size(12)
-        };
+        let panel_content = column![
+            header,
+            versions_scrollable,
+            launch_hint,
+        ]
+        .spacing(12)
+        .padding(15);
 
-        let content = column![header, versions_scrollable, launch_hint, launch_button]
-            .spacing(12)
+        let panel_base = container(panel_content)
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        let fab_layer = container(launch_button)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::End)
+            .align_y(Alignment::End)
             .padding(15);
 
-        container(content)
+        container(
+            Stack::new()
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .push(panel_base)
+                .push(fab_layer)
+        )
             .width(Length::FillPortion(3))
             .height(Length::Fill)
             .style(styles::card_container)
@@ -464,8 +1102,8 @@ impl MainWindow {
         
         let account_info = if let Some(session) = &self.session {
             column![
-                text(&session.minecraft_profile.name).size(18),
-                text(format!("ID: {}", &session.minecraft_profile.id[..8])).size(12),
+                text(&session.minecraft_profile.name).size(20),
+                text(format!("ID: {}", &session.minecraft_profile.id[..8])).size(16),
                 button(s.logout)
                     .on_press(Message::Login(LoginMessage::CancelLogin))
                     .padding([8, 16])
@@ -476,20 +1114,20 @@ impl MainWindow {
         } else if self.refreshing_token {
             if let Some((username, uuid)) = &self.saved_user_info {
                 column![
-                    text(username).size(18),
-                    text(format!("ID: {}", &uuid[..8])).size(12),
-                    text(s.refreshing_token).size(12),
+                    text(username).size(20),
+                    text(format!("ID: {}", &uuid[..8])).size(16),
+                    text(s.refreshing_token).size(16),
                 ]
                 .spacing(10)
                 .align_x(Alignment::Center)
             } else {
-                column![text(s.refreshing_token).size(16)]
+                column![text(s.refreshing_token).size(18)]
                     .spacing(10)
                     .align_x(Alignment::Center)
             }
         } else {
             column![
-                text(s.not_logged_in).size(16),
+                text(s.not_logged_in).size(18),
                 button(s.login_with_microsoft)
                     .on_press(Message::Login(LoginMessage::ShowLogin))
                     .padding([10, 20])
@@ -500,7 +1138,7 @@ impl MainWindow {
         };
 
         let content = column![
-            text(s.account).size(20),
+            text(s.account).size(22),
             account_info,
         ]
         .spacing(15)
@@ -516,7 +1154,7 @@ impl MainWindow {
 
     fn view_top_bar(&self) -> Element<'_, Message> {
         let s = strings();
-        let title = text(s.app_title).size(22);
+        let title = text(s.app_title).size(24);
 
         let download_progress = container(
             progress_bar(0.0..=1.0, self.download_progress)
@@ -525,12 +1163,60 @@ impl MainWindow {
         .width(Length::Fill)
         .padding([4, 0]);
 
+        let lang_selector = row![
+            text("Language:").size(16),
+            pick_list(Language::all(), Some(self.language), Message::LanguageChanged)
+                .padding([4, 8]),
+        ]
+        .spacing(5)
+        .align_y(Alignment::Center);
+
+        let account_button = if let Some(session) = &self.session {
+            let mut btn_content: Vec<Element<'_, Message>> = Vec::new();
+            if let Some(avatar_handle) = &self.avatar {
+                btn_content.push(
+                    image(avatar_handle.clone())
+                        .width(Length::Fixed(16.0))
+                        .height(Length::Fixed(16.0))
+                        .into()
+                );
+            }
+            btn_content.push(text(&session.minecraft_profile.name).into());
+            button(row![iced::widget::Row::from_vec(btn_content).align_y(Alignment::Center).spacing(6)])
+                .on_press(Message::ToggleAccountMenu)
+                .padding([8, 16])
+                .style(styles::button_success)
+        } else if let Some((username, _)) = &self.saved_user_info {
+            let angle = (self.animation_tick as f32) * 0.15;
+            let spinner = canvas(Spinner { angle })
+                .width(Length::Fixed(16.0))
+                .height(Length::Fixed(16.0));
+            button(row![spinner, text(username)].align_y(Alignment::Center).spacing(6))
+                .on_press(Message::ToggleAccountMenu)
+                .padding([8, 16])
+                .style(styles::button_secondary)
+        } else {
+            button(text(s.login_with_microsoft))
+                .on_press(Message::ToggleAccountMenu)
+                .padding([8, 16])
+                .style(styles::button_secondary)
+        };
+
+        let account_area: Element<'_, Message> = DropDown::new(
+            account_button,
+            self.view_account_dropdown(),
+            self.show_account_menu,
+        )
+        .on_dismiss(Message::ToggleAccountMenu)
+        .offset(4.0)
+        .into();
+
         let settings_button = button(s.settings)
             .on_press(Message::Settings(SettingsMessage::ShowSettings))
             .padding([8, 16])
-            .style(styles::button_secondary);
+            .style(styles::button_primary);
 
-        row![title, download_progress, settings_button]
+        row![title, download_progress, lang_selector, account_area, settings_button]
             .spacing(15)
             .padding([10, 15])
             .align_y(Alignment::Center)

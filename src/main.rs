@@ -9,7 +9,7 @@ mod config;
 mod utils;
 mod i18n;
 
-use iced::{Task, Settings, Font};
+use iced::{Task, Settings};
 use log::info;
 
 use gui::main_window::{MainWindow, Message};
@@ -17,7 +17,6 @@ use utils::font;
 
 /// Boot function called once at application startup.
 fn boot() -> (MainWindow, Task<Message>) {
-    // Initialize the logger
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
@@ -25,14 +24,14 @@ fn boot() -> (MainWindow, Task<Message>) {
     info!("Minecraft Launcher starting...");
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
     
-    // Log detected font
     let font_family = font::get_default_font_family();
     info!("Detected font family: {}", font_family);
     
     let main_window = MainWindow::new();
     let startup_task = main_window.startup_tasks();
+    let icon_task = main_window.load_version_icons();
     
-    (main_window, startup_task)
+    (main_window, Task::batch(vec![startup_task, icon_task]))
 }
 
 /// Application entry point.
