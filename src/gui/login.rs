@@ -162,22 +162,30 @@ impl Login {
             return container(text("")).width(Length::Fill).height(Length::Fill).into();
         }
 
-        let title = text(s.login_with_microsoft_account).size(24);
+        let title = text(s.login_with_microsoft_account).size(26);
 
         let content = match &self.state {
             LoginState::Idle => unreachable!(),
             LoginState::OpeningBrowser => {
                 column![
-                    text(s.opening_browser).size(16),
-                    text(s.complete_login_in_browser).size(14),
+                    text(s.opening_browser).size(18),
+                    text(s.complete_login_in_browser).size(16),
                     container(progress_bar(0.0..=1.0, 0.3).style(styles::progress_bar_style)).padding([4, 0]),
+                    if self.error.is_some() {
+                        button(s.open_login_page_again)
+                            .on_press(Message::ShowLogin)
+                            .padding([8, 16])
+                            .style(styles::button_primary)
+                    } else {
+                        button(text("")).padding([0, 0])
+                    },
                 ].spacing(15)
             }
             LoginState::WaitingForCallback => {
                 column![
-                    text(s.waiting_for_login).size(18),
-                    text(s.complete_login_in_browser).size(14),
-                    text(s.code_captured_automatically).size(14),
+                    text(s.waiting_for_login).size(20),
+                    text(s.complete_login_in_browser).size(16),
+                    text(s.code_captured_automatically).size(16),
                     container(progress_bar(0.0..=1.0, 0.5).style(styles::progress_bar_style)).padding([4, 0]),
                     button(s.enter_code_manually)
                         .on_press(Message::AuthCodeChanged(String::new()))
@@ -187,15 +195,15 @@ impl Login {
             }
             LoginState::WaitingForManualCode => {
                 column![
-                    text(s.manual_code_entry).size(18),
-                    text(s.copy_code_from_url).size(14),
-                    text(s.paste_code_below).size(14),
+                    text(s.manual_code_entry).size(20),
+                    text(s.copy_code_from_url).size(16),
+                    text(s.paste_code_below).size(16),
                     button(s.open_login_page_again)
                         .on_press(Message::OpenAuthUrl)
                         .padding([8, 16])
                         .style(styles::button_secondary),
                     column![
-                        text(s.authorization_code).size(14),
+                        text(s.authorization_code).size(16),
                         text_input(s.paste_code_here, &self.auth_code)
                             .on_input(Message::AuthCodeChanged)
                             .padding(10)
@@ -210,30 +218,30 @@ impl Login {
             }
             LoginState::Authenticating => {
                 column![
-                    text(s.authenticating).size(18),
-                    text(s.verify_account).size(14),
+                    text(s.authenticating).size(20),
+                    text(s.verify_account).size(16),
                     container(progress_bar(0.0..=1.0, 0.7).style(styles::progress_bar_style)).padding([4, 0]),
                 ].spacing(15)
             }
             LoginState::Success => {
                 if let Some(session) = &self.session {
                     column![
-                        text(s.login_successful).size(20),
-                        text(s.welcome.replace("{}", &session.minecraft_profile.name)).size(16),
-                        text(s.uuid.replace("{}", &session.minecraft_profile.id)).size(14),
+                        text(s.login_successful).size(22),
+                        text(s.welcome.replace("{}", &session.minecraft_profile.name)).size(18),
+                        text(s.uuid.replace("{}", &session.minecraft_profile.id)).size(16),
                         button(s.close)
                             .on_press(Message::CancelLogin)
                             .padding([10, 20])
                             .style(styles::button_success),
                     ].spacing(15)
                 } else {
-                    column![text(s.login_successful).size(16)]
+                    column![text(s.login_successful).size(18)]
                 }
             }
             LoginState::Error(e) => {
                 column![
-                    text(s.login_failed).size(20),
-                    text(e).size(14),
+                    text(s.login_failed).size(22),
+                    text(e).size(16),
                     row![
                         button(s.try_again).on_press(Message::ShowLogin).padding([10, 20]).style(styles::button_primary),
                         button(s.cancel).on_press(Message::CancelLogin).padding([10, 20]).style(styles::button_secondary),

@@ -128,10 +128,10 @@ impl AddVersion {
             return container(text("")).width(Length::Fill).height(Length::Fill).into();
         }
 
-        let title = text(s.add_new_version).size(24);
+        let title = text(s.add_new_version).size(26);
 
         let filter_row = row![
-            text(s.filter).size(14),
+            text(s.filter).size(16),
             pick_list(VersionFilter::all(), Some(self.filter.clone()), Message::FilterChanged)
                 .placeholder(s.select_filter)
                 .padding([8, 12]),
@@ -139,12 +139,12 @@ impl AddVersion {
 
         let content: Element<Message> = if self.is_loading {
             container(
-                column![text(s.loading_versions).size(16), text(s.please_wait).size(14)]
+                column![text(s.loading_versions).size(18), text(s.please_wait).size(16)]
                     .spacing(10).align_x(Alignment::Center)
             ).center_x(Length::Fill).center_y(Length::Fill).into()
         } else if let Some(ref error) = self.error {
             column![
-                text(s.error.replace("{}", error)).size(16),
+                text(s.error.replace("{}", error)).size(18),
                 button(s.retry).on_press(Message::ShowAddVersion).padding([10, 20]).style(styles::button_primary),
             ].spacing(10).into()
         } else {
@@ -159,10 +159,10 @@ impl AddVersion {
 
             let selected_text = if let Some(index) = self.selected_index {
                 if let Some(version) = self.filtered_versions.get(index) {
-                    text(s.selected.replace("{}", &version.id)).size(14)
-                } else { text("").size(14) }
+                    text(s.selected.replace("{}", &version.id)).size(16)
+                } else { text("").size(16) }
             } else {
-                text(s.select_a_version).size(14)
+                text(s.select_a_version).size(16)
             };
 
             column![

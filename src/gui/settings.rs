@@ -75,10 +75,10 @@ impl Settings {
             return container(text("")).width(Length::Fill).height(Length::Fill).into();
         }
 
-        let title = text(s.settings).size(24);
+        let title = text(s.settings).size(26);
 
         let java_path_input = column![
-            text(s.java_path).size(14),
+            text(s.java_path).size(16),
             text_input(s.java_path_hint, &self.java_path)
                 .on_input(Message::JavaPathChanged)
                 .padding(10)
@@ -86,7 +86,7 @@ impl Settings {
         ].spacing(5);
 
         let memory_input = column![
-            text(s.memory_mb).size(14),
+            text(s.memory_mb).size(16),
             text_input("2048", &self.memory)
                 .on_input(Message::MemoryChanged)
                 .padding(10)
@@ -95,16 +95,16 @@ impl Settings {
 
         let auto_update_row = row![
             checkbox(self.auto_update).on_toggle(Message::AutoUpdateChanged).style(styles::checkbox_style),
-            text(s.auto_update_on_startup).size(14),
+            text(s.auto_update_on_startup).size(16),
         ].spacing(10).align_y(Alignment::Center);
 
-        let save_button = button(s.save)
+        let save_button = button(container(text(s.save)).center_x(Length::Fill))
             .on_press(Message::SaveSettings)
             .width(Length::Fill)
             .padding(12)
             .style(styles::button_primary);
 
-        let cancel_button = button(s.cancel)
+        let cancel_button = button(container(text(s.cancel)).center_x(Length::Fill))
             .on_press(Message::CancelSettings)
             .width(Length::Fill)
             .padding(12)
