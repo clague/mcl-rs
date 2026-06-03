@@ -12,8 +12,8 @@
 use serde::{Deserialize, Serialize};
 use reqwest::Client;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpListener;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use log::{info, warn, error, debug};
 
@@ -548,93 +548,79 @@ pub async fn refresh_session(refresh_token: &str) -> Result<AccountSession, Stri
 pub async fn wait_for_auth_code() -> Result<String, String> {
     info!("Starting local callback server on port {}...", LISTEN_PORT);
     
-    // Try to bind to the port
     let listener = TcpListener::bind(format!("127.0.0.1:{}", LISTEN_PORT))
+        .await
         .map_err(|e| {
             warn!("Port {} is busy: {}", LISTEN_PORT, e);
             format!("Port {} is busy: {}", LISTEN_PORT, e)
         })?;
     
-    // Set non-blocking mode for async compatibility
-    listener.set_nonblocking(true)
-        .map_err(|e| format!("Failed to set non-blocking: {}", e))?;
-    
     info!("Callback server listening on http://127.0.0.1:{}", LISTEN_PORT);
     
-    // Shared state for the received code
     let code: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let code_clone = code.clone();
     
-    // Spawn a blocking task to handle incoming connections
-    let listener_handle = tokio::task::spawn_blocking(move || {
-        for stream in listener.incoming() {
-            match stream {
-                Ok(mut stream) => {
-                    let mut reader = BufReader::new(&stream);
-                    let mut request_line = String::new();
-                    reader.read_line(&mut request_line).unwrap_or_default();
-                    
-                    debug!("Received request: {}", request_line.trim());
-                    
-                    // Check if this is the callback request (root path with code parameter)
-                    if request_line.contains("GET /") && request_line.contains("code=") {
-                        // Extract the authorization code from the query string
-                        if let Some(code_part) = request_line.split("code=").nth(1) {
-                            let code = code_part.split("&").next().unwrap_or("").to_string();
-                            if !code.is_empty() {
-                                info!("Authorization code received");
+    let listener_handle = tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((mut stream, _)) => {
+                    let code_clone = code_clone.clone();
+                    tokio::spawn(async move {
+                        let mut buf = vec![0u8; 4096];
+                        let n = stream.read(&mut buf).await.unwrap_or(0);
+                        let request = String::from_utf8_lossy(&buf[..n]);
+                        
+                        debug!("Received request: {}", request.lines().next().unwrap_or(""));
+                        
+                        if let Some(first_line) = request.lines().next() {
+                            if first_line.starts_with("GET /") && first_line.contains("code=") {
+                                if let Some(code_part) = first_line.split("code=").nth(1) {
+                                    let code = code_part.split(&['&', ' '][..]).next().unwrap_or("").to_string();
+                                    if !code.is_empty() {
+                                        info!("Authorization code received");
+                                        *code_clone.lock().unwrap() = Some(code);
+                                        
+                                        let response = "HTTP/1.1 200 OK\r\n\
+                                            Content-Type: text/html; charset=utf-8\r\n\
+                                            \r\n\
+                                            <html><body style='font-family: sans-serif; text-align: center; padding: 50px;'>\
+                                            <h1>Login Successful!</h1>\
+                                            <p>You can close this window and return to the launcher.</p>\
+                                            <script>setTimeout(() => window.close(), 2000);</script>\
+                                            </body></html>";
+                                        
+                                        let _ = stream.write_all(response.as_bytes()).await;
+                                        let _ = stream.flush().await;
+                                        return;
+                                    }
+                                }
                                 
-                                // Store the code
-                                let mut locked = code_clone.lock().unwrap();
-                                *locked = Some(code);
-                                
-                                // Send success response to browser
-                                let response = "HTTP/1.1 200 OK\r\n\
+                                let error_response = "HTTP/1.1 400 Bad Request\r\n\
                                     Content-Type: text/html; charset=utf-8\r\n\
                                     \r\n\
                                     <html><body style='font-family: sans-serif; text-align: center; padding: 50px;'>\
-                                    <h1>Login Successful!</h1>\
-                                    <p>You can close this window and return to the launcher.</p>\
-                                    <script>setTimeout(() => window.close(), 2000);</script>\
+                                    <h1>Missing authorization code</h1>\
+                                    <p>Please try again.</p>\
                                     </body></html>";
-                                
-                                stream.write_all(response.as_bytes()).unwrap_or_default();
-                                stream.flush().unwrap_or_default();
-                                break;
+                                let _ = stream.write_all(error_response.as_bytes()).await;
+                                let _ = stream.flush().await;
                             }
                         }
-                        
-                        // Send error response if code is missing
-                        let error_response = "HTTP/1.1 400 Bad Request\r\n\
-                            Content-Type: text/html; charset=utf-8\r\n\
-                            \r\n\
-                            <html><body style='font-family: sans-serif; text-align: center; padding: 50px;'>\
-                            <h1>Missing authorization code</h1>\
-                            <p>Please try again.</p>\
-                            </body></html>";
-                        
-                        stream.write_all(error_response.as_bytes()).unwrap_or_default();
-                        stream.flush().unwrap_or_default();
-                    }
+                    });
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    // No connection available, sleep briefly and retry
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    continue;
+                Err(e) => {
+                    warn!("Failed to accept connection: {}", e);
                 }
-                Err(_) => break,
             }
         }
     });
     
-    // Wait for the code with a timeout
-    let timeout = std::time::Duration::from_secs(300); // 5 minutes
+    let timeout = std::time::Duration::from_secs(300);
     let start = std::time::Instant::now();
     
     debug!("Waiting for authorization code (timeout: 5 minutes)...");
     
     loop {
-        // Check if code was received
         {
             let locked = code.lock().unwrap();
             if let Some(code) = locked.as_ref() {
@@ -644,14 +630,12 @@ pub async fn wait_for_auth_code() -> Result<String, String> {
             }
         }
         
-        // Check for timeout
         if start.elapsed() > timeout {
             warn!("Authentication timed out after 5 minutes");
             listener_handle.abort();
             return Err("Authentication timed out after 5 minutes".to_string());
         }
         
-        // Sleep briefly before checking again
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 }

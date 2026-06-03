@@ -2,7 +2,7 @@
 // Platform-specific font selection for the launcher
 
 use iced::Font;
-use log::{info, debug, warn};
+use log::{info, warn};
 
 /// Get the default font configuration for the current platform
 pub fn get_system_font() -> Font {
@@ -42,29 +42,35 @@ fn get_fontconfig_font_file(pattern: &str) -> Option<String> {
     }
 }
 
+/// Preferred font patterns in order of priority
+const PREFERRED_FONTS: &[&str] = &[
+    "system-ui",
+    "sans-serif",
+];
+
 /// Get font on Linux using fontconfig
 fn get_linux_font() -> Font {
-    // Try to load system font file
-    if let Some(font_path) = get_fontconfig_font_file("sans-serif") {
-        info!("Loading system font: {}", font_path);
-        match std::fs::read(&font_path) {
-            Ok(font_data) => {
-                // Leak the data to get 'static lifetime
-                let static_data: &'static [u8] = Box::leak(font_data.into_boxed_slice());
-                iced::font::load(static_data);
-                info!("System font loaded successfully");
-            }
-            Err(e) => {
-                warn!("Failed to read font file: {}: {}", font_path, e);
+    // Try each preferred font pattern in order
+    for pattern in PREFERRED_FONTS {
+        if let Some(font_path) = get_fontconfig_font_file(pattern) {
+            info!("Loading system font: {}", font_path);
+            match std::fs::read(&font_path) {
+                Ok(font_data) => {
+                    let static_data: &'static [u8] = Box::leak(font_data.into_boxed_slice());
+                    let _ = iced::font::load(static_data);
+                    info!("System font loaded successfully");
+                }
+                Err(e) => {
+                    warn!("Failed to read font file: {}: {}", font_path, e);
+                }
             }
         }
-    }
-    
-    // Return font with detected name
-    if let Some(font_name) = get_fontconfig_font_name("sans-serif") {
-        info!("Using font: {}", font_name);
-        let static_name: &'static str = Box::leak(font_name.into_boxed_str());
-        return Font::with_name(static_name);
+        
+        if let Some(font_name) = get_fontconfig_font_name(pattern) {
+            info!("Using font: {}", font_name);
+            let static_name: &'static str = Box::leak(font_name.into_boxed_str());
+            return Font::with_name(static_name);
+        }
     }
     
     // Fallback
@@ -107,7 +113,7 @@ pub fn get_monospace_font() -> Font {
             info!("Loading monospace font: {}", font_path);
             if let Ok(font_data) = std::fs::read(&font_path) {
                 let static_data: &'static [u8] = Box::leak(font_data.into_boxed_slice());
-                iced::font::load(static_data);
+                let _ = iced::font::load(static_data);
             }
         }
         
@@ -138,7 +144,12 @@ pub fn get_monospace_font() -> Font {
 pub fn get_default_font_family() -> String {
     #[cfg(target_os = "linux")]
     {
-        get_fontconfig_font_name("sans-serif").unwrap_or_else(|| "sans-serif".to_string())
+        for pattern in PREFERRED_FONTS {
+            if let Some(name) = get_fontconfig_font_name(pattern) {
+                return name;
+            }
+        }
+        "sans-serif".to_string()
     }
     
     #[cfg(target_os = "windows")]

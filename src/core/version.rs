@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use log::{info, error, debug};
+use rand::RngExt;
 
 /// Mojang version manifest API endpoint
 const VERSION_MANIFEST_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
@@ -31,6 +32,12 @@ pub struct LatestVersion {
 pub struct VersionInfo {
     /// Version ID (e.g., "1.20.4", "24w03b")
     pub id: String,
+    /// User-defined display name (defaults to version ID)
+    #[serde(default)]
+    pub display_name: String,
+    /// Minecraft item name for version icon (e.g., "diamond", "emerald")
+    #[serde(default)]
+    pub icon_name: String,
     /// Version type: "release", "snapshot", "old_beta", or "old_alpha"
     #[serde(rename = "type")]
     pub version_type: String,
@@ -41,6 +48,21 @@ pub struct VersionInfo {
     /// Release time (ISO 8601 format)
     #[serde(rename = "releaseTime")]
     pub release_time: String,
+}
+
+/// Iconic Minecraft mob/entity heads for version icons
+pub const MINECRAFT_ICONS: &[&str] = &[
+    "creeper", "zombie", "skeleton", "enderman", "spider",
+    "blaze", "ghast", "witch", "wither_skeleton", "ender_dragon",
+    "steve", "alex", "piglin", "warden", "breeze",
+    "pig", "cow", "chicken", "sheep", "villager",
+];
+
+/// Get a random icon name from the list
+pub fn random_icon() -> String {
+    let mut rng = rand::rng();
+    let index = rng.random_range(0..MINECRAFT_ICONS.len());
+    MINECRAFT_ICONS[index].to_string()
 }
 
 /// Detailed version information fetched from the version JSON
