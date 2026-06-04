@@ -43,9 +43,9 @@ impl Settings {
 
     pub fn load_from_config(&mut self, config: &Config) {
         self.java_path = config.java_path.clone().unwrap_or_default();
-        self.memory = config.memory.to_string();
+        self.memory = config.memory.map(|m| m.to_string()).unwrap_or_default();
         self.auto_update = config.auto_update;
-        self.max_connections = config.max_connections.to_string();
+        self.max_connections = config.max_connections.map(|m| m.to_string()).unwrap_or_default();
         self.language = Language::from_code(&config.language);
     }
 
@@ -65,8 +65,8 @@ impl Settings {
         self.auto_update
     }
 
-    pub fn get_max_connections(&self) -> usize {
-        self.max_connections.parse().unwrap_or(32)
+    pub fn get_max_connections(&self) -> Option<usize> {
+        self.max_connections.parse().ok()
     }
 
     pub fn get_language(&self) -> Language {

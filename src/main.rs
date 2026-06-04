@@ -25,7 +25,7 @@ fn boot() -> (MainWindow, Task<Message>) {
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
     
     let config = config::config::Config::load();
-    utils::net::init_client(config.max_connections);
+    utils::net::init_client(config.max_connections.unwrap_or(32));
     
     let font_family = font::get_default_font_family();
     info!("Detected font family: {}", font_family);

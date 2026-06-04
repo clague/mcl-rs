@@ -1,0 +1,108 @@
+zh:
+  # Main window
+  app_title: "Minecraft 启动器"
+  versions: "版本列表"
+  account: "账号"
+  settings: "设置"
+  launch: "启动"
+  add: "+ 添加"
+
+  # Version panel
+  no_versions: "还没有添加版本"
+  no_versions_hint: "点击「+ 添加」来添加 Minecraft 版本"
+  version_type_release: "正式版"
+  version_type_snapshot: "快照版"
+  version_settings: "版本设置"
+  version_number: "版本号"
+  version_type: "类型"
+  display_name: "显示名称"
+  open_folder: "打开文件夹"
+  delete_version: "删除版本"
+  delete_confirm: "删除版本文件？共享资源（libraries、assets）将保留。"
+  choose_icon: "选择图标"
+
+  # Account panel
+  not_logged_in: "未登录"
+  login_with_microsoft: "使用 Microsoft 登录"
+  open_browser_to_login: "打开浏览器登录"
+  logout: "退出登录"
+  refreshing_token: "正在刷新令牌..."
+  refreshing_session: "正在刷新会话，请稍候..."
+  please_login_first: "请先登录再启动游戏"
+  select_version_to_launch: "选择一个版本启动"
+  session_refresh_failed: "会话刷新失败"
+  refresh_session: "刷新会话"
+
+  # Status bar
+  all_versions_up_to_date: "所有版本已是最新"
+  updates_available: "有 {count} 个更新可用"
+  update_check_failed: "更新检查失败: {error}"
+  auto_update_disabled: "自动更新已禁用"
+  checking_updates: "正在检查更新..."
+  session_refresh_failed_hint: "会话已过期，请刷新或退出登录"
+
+  # Login dialog
+  login_with_microsoft_account: "使用 Microsoft 账号登录"
+  opening_browser: "正在打开浏览器..."
+  complete_login_in_browser: "请在浏览器中完成登录"
+  waiting_for_login: "等待登录中..."
+  code_captured_automatically: "授权码将自动捕获"
+  enter_code_manually: "手动输入授权码"
+  manual_code_entry: "手动输入授权码"
+  copy_code_from_url: "1. 从浏览器 URL 复制授权码"
+  paste_code_below: "2. 粘贴到下方"
+  authorization_code: "授权码："
+  paste_code_here: "在此粘贴授权码..."
+  open_login_page_again: "重新打开登录页面"
+  authenticating: "正在认证..."
+  verify_account: "请稍候，正在验证您的账号"
+  login_successful: "登录成功！"
+  welcome: "欢迎, {name}"
+  uuid: "UUID: {uuid}"
+  close: "关闭"
+  login_failed: "登录失败"
+  try_again: "重试"
+  cancel: "取消"
+  submit_code: "提交授权码"
+  note: "注意: {note}"
+  port_busy: "端口 8080 被占用，请手动输入授权码。"
+
+  # Settings dialog
+  java_path: "Java 路径"
+  java_path_hint: "留空自动检测"
+  memory_mb: "内存 (MB)"
+  auto_update_on_startup: "启动时自动更新"
+  max_connections: "最大并发连接数"
+  save: "保存"
+
+  # Add version dialog
+  add_new_version: "添加新版本"
+  filter: "筛选: "
+  select_filter: "选择筛选..."
+  release: "正式版"
+  snapshot: "快照版"
+  all: "全部"
+  loading_versions: "正在加载版本..."
+  please_wait: "请稍候..."
+  error: "错误: {error}"
+  retry: "重试"
+  selected: "已选择: {version}"
+  select_a_version: "选择一个版本"
+  add_version: "添加版本"
+
+  # Language setup
+  welcome_setup: "欢迎"
+  select_language: "请选择您的语言"
+  confirm: "确认"
+  language: "语言"
+
+  # Download
+  downloading: "正在下载..."
+  download_complete: "下载完成"
+  download_failed: "下载失败"
+
+  # Errors
+  failed_to_fetch_manifest: "获取版本清单失败"
+  failed_to_parse_version: "解析版本详情失败"
+  failed_to_download: "下载文件失败"
+  failed_to_launch: "启动游戏失败"

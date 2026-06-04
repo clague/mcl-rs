@@ -326,27 +326,34 @@ impl MainWindow {
             }
             // Handle settings messages
             Message::Settings(settings_message) => {
+                if let SettingsMessage::ShowSettings = &settings_message {
+                    self.settings.load_from_config(&self.config);
+                }
                 if let SettingsMessage::LanguageChanged(lang) = &settings_message {
                     self.language = *lang;
                     i18n::set_language(*lang);
-                    self.config.save_language(lang.code());
-                    info!("Language changed to: {}", lang.display_name());
                 }
                 if let SettingsMessage::SaveSettings = &settings_message {
                     if let Some(java_path) = self.settings.get_java_path() {
                         self.config.java_path = Some(java_path);
+                    } else {
+                        self.config.java_path = None;
                     }
-                    if let Some(memory) = self.settings.get_memory() {
-                        self.config.memory = memory;
-                    }
+                    self.config.memory = self.settings.get_memory();
                     self.config.auto_update = self.settings.get_auto_update();
                     self.config.max_connections = self.settings.get_max_connections();
+                    self.config.save_language(self.settings.get_language().code());
 
                     if let Err(e) = self.config.save() {
                         error!("Failed to save config: {}", e);
                     } else {
                         info!("Configuration saved successfully");
                     }
+                }
+                if let SettingsMessage::CancelSettings = &settings_message {
+                    let original_lang = Language::from_code(&self.config.language);
+                    self.language = original_lang;
+                    i18n::set_language(original_lang);
                 }
                 self.settings.update(settings_message).map(Message::Settings)
             }

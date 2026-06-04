@@ -26,8 +26,9 @@ pub struct SavedSession {
 pub struct Config {
     /// Path to Java executable (None = auto-detect)
     pub java_path: Option<String>,
-    /// Memory allocation in MB
-    pub memory: u32,
+    /// Memory allocation in MB (None = use default 2048)
+    #[serde(default)]
+    pub memory: Option<u32>,
     /// Whether to auto-update game files
     pub auto_update: bool,
     /// Base game directory
@@ -45,19 +46,14 @@ pub struct Config {
     /// UI language preference ("en" or "zh")
     #[serde(default = "default_language")]
     pub language: String,
-    /// Maximum concurrent HTTP connections
-    #[serde(default = "default_max_connections")]
-    pub max_connections: usize,
+    /// Maximum concurrent HTTP connections (None = use default 32)
+    #[serde(default)]
+    pub max_connections: Option<usize>,
 }
 
 /// Default language is English
 fn default_language() -> String {
     "en".to_string()
-}
-
-/// Default max connections
-fn default_max_connections() -> usize {
-    32
 }
 
 impl Config {
@@ -189,7 +185,7 @@ impl Default for Config {
         
         Self {
             java_path: None,
-            memory: 2048, // 2GB default
+            memory: None,
             auto_update: true,
             game_dir: game_dir.clone(),
             versions_dir: game_dir.join("versions"),
@@ -197,7 +193,7 @@ impl Default for Config {
             saved_session: None,
             added_versions: Vec::new(),
             language: default_language(),
-            max_connections: default_max_connections(),
+            max_connections: None,
         }
     }
 }

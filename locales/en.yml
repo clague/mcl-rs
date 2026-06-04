@@ -1,0 +1,108 @@
+en:
+  # Main window
+  app_title: "Minecraft Launcher"
+  versions: "Versions"
+  account: "Account"
+  settings: "Settings"
+  launch: "Launch"
+  add: "+ Add"
+
+  # Version panel
+  no_versions: "No versions added yet"
+  no_versions_hint: "Click '+ Add' to add a Minecraft version"
+  version_type_release: "Release"
+  version_type_snapshot: "Snapshot"
+  version_settings: "Version Settings"
+  version_number: "Version"
+  version_type: "Type"
+  display_name: "Display Name"
+  open_folder: "Open Folder"
+  delete_version: "Delete Version"
+  delete_confirm: "Delete version files? Shared resources (libraries, assets) will be kept."
+  choose_icon: "Choose Icon"
+
+  # Account panel
+  not_logged_in: "Not logged in"
+  login_with_microsoft: "Login with Microsoft"
+  open_browser_to_login: "Open browser to login"
+  logout: "Logout"
+  refreshing_token: "Refreshing token..."
+  refreshing_session: "Refreshing session, please wait..."
+  please_login_first: "Please login first to launch"
+  select_version_to_launch: "Select a version to launch"
+  session_refresh_failed: "Session refresh failed"
+  refresh_session: "Refresh Session"
+
+  # Status bar
+  all_versions_up_to_date: "All versions up to date"
+  updates_available: "{count} update(s) available"
+  update_check_failed: "Update check failed: {error}"
+  auto_update_disabled: "Auto-update disabled"
+  checking_updates: "Checking for updates..."
+  session_refresh_failed_hint: "Session expired, please refresh or logout"
+
+  # Login dialog
+  login_with_microsoft_account: "Login with Microsoft Account"
+  opening_browser: "Opening browser..."
+  complete_login_in_browser: "Please complete login in your browser"
+  waiting_for_login: "Waiting for login..."
+  code_captured_automatically: "The code will be captured automatically"
+  enter_code_manually: "Enter code manually"
+  manual_code_entry: "Manual Code Entry"
+  copy_code_from_url: "1. Copy the code from the browser URL"
+  paste_code_below: "2. Paste it below"
+  authorization_code: "Authorization Code:"
+  paste_code_here: "Paste code here..."
+  open_login_page_again: "Open Login Page Again"
+  authenticating: "Authenticating..."
+  verify_account: "Please wait while we verify your account"
+  login_successful: "Login Successful!"
+  welcome: "Welcome, {name}"
+  uuid: "UUID: {uuid}"
+  close: "Close"
+  login_failed: "Login Failed"
+  try_again: "Try Again"
+  cancel: "Cancel"
+  submit_code: "Submit Code"
+  note: "Note: {note}"
+  port_busy: "Port 8080 is busy. Please enter the code manually."
+
+  # Settings dialog
+  java_path: "Java Path"
+  java_path_hint: "Leave empty for auto-detect"
+  memory_mb: "Memory (MB)"
+  auto_update_on_startup: "Auto-update on startup"
+  max_connections: "Max Connections"
+  save: "Save"
+
+  # Add version dialog
+  add_new_version: "Add New Version"
+  filter: "Filter: "
+  select_filter: "Select filter..."
+  release: "Release"
+  snapshot: "Snapshot"
+  all: "All"
+  loading_versions: "Loading versions..."
+  please_wait: "Please wait..."
+  error: "Error: {error}"
+  retry: "Retry"
+  selected: "Selected: {version}"
+  select_a_version: "Select a version"
+  add_version: "Add Version"
+
+  # Language setup
+  welcome_setup: "Welcome"
+  select_language: "Please select your language"
+  confirm: "Confirm"
+  language: "Language"
+
+  # Download
+  downloading: "Downloading..."
+  download_complete: "Download complete"
+  download_failed: "Download failed"
+
+  # Errors
+  failed_to_fetch_manifest: "Failed to fetch version manifest"
+  failed_to_parse_version: "Failed to parse version detail"
+  failed_to_download: "Failed to download files"
+  failed_to_launch: "Failed to launch game"

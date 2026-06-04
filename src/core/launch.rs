@@ -36,7 +36,7 @@ impl LaunchConfig {
         Self {
             version_id: version_id.to_string(),
             java_path: config.java_path.clone().unwrap_or_else(|| "java".to_string()),
-            memory: config.memory,
+            memory: config.memory.unwrap_or(2048),
             game_dir: config.game_dir.clone(),
             versions_dir: config.versions_dir.clone(),
             assets_dir: config.assets_dir.clone(),
