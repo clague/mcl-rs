@@ -22,3 +22,6 @@ open = "5"
 zip = "0.6"
 rand = "0.10.1"
 iced_aw = { version = "0.14.1", features = ["drop_down"] }
+locale_config = "0.3"
+serde_yaml = "0.9"
+rust-i18n = "3"
