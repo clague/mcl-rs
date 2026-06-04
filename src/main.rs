@@ -29,9 +29,8 @@ fn boot() -> (MainWindow, Task<Message>) {
     
     let main_window = MainWindow::new();
     let startup_task = main_window.startup_tasks();
-    let icon_task = main_window.load_version_icons();
     
-    (main_window, Task::batch(vec![startup_task, icon_task]))
+    (main_window, startup_task)
 }
 
 /// Application entry point.

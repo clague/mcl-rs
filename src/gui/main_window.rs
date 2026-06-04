@@ -262,28 +262,6 @@ impl MainWindow {
         Task::batch(tasks)
     }
 
-    pub fn load_version_icons(&self) -> Task<Message> {
-        let mut tasks = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for version in &self.versions {
-            let icon_name = if version.icon_name.is_empty() {
-                crate::core::version::random_icon()
-            } else {
-                version.icon_name.clone()
-            };
-            if seen.insert(icon_name.clone()) {
-                tasks.push(Task::perform(
-                    async move {
-                        let result = Self::fetch_icon_bytes(&icon_name).await;
-                        Message::IconFetched(icon_name, result)
-                    },
-                    |msg| msg,
-                ));
-            }
-        }
-        Task::batch(tasks)
-    }
-
     /// Handles incoming messages and updates state accordingly.
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
@@ -534,14 +512,6 @@ impl MainWindow {
                     Ok(bytes) => {
                         info!("Icon '{}' fetched ({} bytes)", icon_name, bytes.len());
                         self.version_icons.insert(icon_name.clone(), image::Handle::from_bytes(bytes));
-                        // Persist icon_name for versions that didn't have one
-                        for version in &mut self.versions {
-                            if version.icon_name.is_empty() {
-                                version.icon_name = icon_name.clone();
-                            }
-                        }
-                        self.config.added_versions = self.versions.clone();
-                        let _ = self.config.save();
                     }
                     Err(e) => warn!("Failed to fetch icon '{}': {}", icon_name, e),
                 }

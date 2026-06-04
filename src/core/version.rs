@@ -36,7 +36,7 @@ pub struct VersionInfo {
     #[serde(default)]
     pub display_name: String,
     /// Minecraft item name for version icon (e.g., "diamond", "emerald")
-    #[serde(default)]
+    #[serde(default = "random_icon")]
     pub icon_name: String,
     /// Version type: "release", "snapshot", "old_beta", or "old_alpha"
     #[serde(rename = "type")]
