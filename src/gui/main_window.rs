@@ -1,7 +1,7 @@
 // Main Window Module
 // Handles the primary application window and coordinates between different views
 
-use iced::widget::{button, column, container, row, text, text_input, scrollable, progress_bar, pick_list, Stack, image, canvas};
+use iced::widget::{button, column, container, row, text, text_input, scrollable, progress_bar, Stack, image, canvas};
 use iced::{Element, Length, Alignment, Subscription, Task, Color, Point, Rectangle, Size, Renderer};
 use iced_aw::widget::drop_down::DropDown;
 use log::{info, warn, error, debug};
@@ -326,6 +326,12 @@ impl MainWindow {
             }
             // Handle settings messages
             Message::Settings(settings_message) => {
+                if let SettingsMessage::LanguageChanged(lang) = &settings_message {
+                    self.language = *lang;
+                    i18n::set_language(*lang);
+                    self.config.save_language(lang.code());
+                    info!("Language changed to: {}", lang.display_name());
+                }
                 if let SettingsMessage::SaveSettings = &settings_message {
                     if let Some(java_path) = self.settings.get_java_path() {
                         self.config.java_path = Some(java_path);
@@ -335,14 +341,6 @@ impl MainWindow {
                     }
                     self.config.auto_update = self.settings.get_auto_update();
                     self.config.max_connections = self.settings.get_max_connections();
-                    
-                    let new_lang = self.settings.get_language();
-                    if new_lang != self.language {
-                        self.language = new_lang;
-                        i18n::set_language(new_lang);
-                        self.config.save_language(new_lang.code());
-                        info!("Language changed to: {}", new_lang.display_name());
-                    }
 
                     if let Err(e) = self.config.save() {
                         error!("Failed to save config: {}", e);
@@ -1257,14 +1255,6 @@ impl MainWindow {
         .width(Length::Fill)
         .padding([4, 0]);
 
-        let lang_selector = row![
-            text("Language:").size(16),
-            pick_list(Language::all(), Some(self.language), Message::LanguageChanged)
-                .padding([4, 8]),
-        ]
-        .spacing(5)
-        .align_y(Alignment::Center);
-
         let account_button = if let Some(session) = &self.session {
             let mut btn_content: Vec<Element<'_, Message>> = Vec::new();
             if let Some(avatar_handle) = &self.avatar {
@@ -1310,7 +1300,7 @@ impl MainWindow {
             .padding([8, 16])
             .style(styles::button_primary);
 
-        row![title, download_progress, lang_selector, account_area, settings_button]
+        row![title, download_progress, account_area, settings_button]
             .spacing(15)
             .padding([10, 15])
             .align_y(Alignment::Center)
