@@ -371,14 +371,19 @@ impl MainWindow {
                     .map(Message::AddVersion)
             }
             Message::VersionSelected(uuid) => {
-                self.selected_version = Some(uuid.clone());
-                self.show_version_settings = true;
-                if let Some(version) = self.versions.iter().find(|v| v.uuid == uuid) {
-                    self.editing_display_name = if version.display_name.is_empty() {
-                        version.version.clone()
-                    } else {
-                        version.display_name.clone()
-                    };
+                if self.selected_version.as_ref() == Some(&uuid) {
+                    self.selected_version = None;
+                    self.show_version_settings = false;
+                } else {
+                    self.selected_version = Some(uuid.clone());
+                    self.show_version_settings = true;
+                    if let Some(version) = self.versions.iter().find(|v| v.uuid == uuid) {
+                        self.editing_display_name = if version.display_name.is_empty() {
+                            version.version.clone()
+                        } else {
+                            version.display_name.clone()
+                        };
+                    }
                 }
                 Task::none()
             }
