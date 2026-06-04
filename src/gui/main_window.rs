@@ -1055,7 +1055,7 @@ impl MainWindow {
 
     fn view_versions_panel(&self) -> Element<'_, Message> {
         let s = strings();
-        
+
         let header = row![
             text(s.versions).size(22).width(Length::Fill),
             button(s.add)
@@ -1078,58 +1078,51 @@ impl MainWindow {
             .center_y(Length::Fill)
             .padding(30)
         } else {
-            let cols = 3;
-            let mut rows: Vec<Element<'_, Message>> = Vec::new();
-            
-            for chunk in self.versions.chunks(cols) {
-                let mut row_items: Vec<Element<'_, Message>> = Vec::new();
-                
-                for (_i, version) in chunk.iter().enumerate() {
-                    let is_selected = self.selected_version.as_ref() == Some(&version.uuid);
-                    let version_type = if version.version_type == "release" { s.version_type_release } else { s.version_type_snapshot };
-                    let display_name = if version.display_name.is_empty() {
-                        version.version.clone()
-                    } else {
-                        version.display_name.clone()
-                    };
+            let mut wrap = iced_aw::Wrap::new();
 
-                    let mut card_items: Vec<Element<'_, Message>> = Vec::new();
-                    if let Some(icon_handle) = self.version_icons.get(&version.icon_name) {
-                        card_items.push(
-                            image(icon_handle.clone())
-                                .width(Length::Fixed(48.0))
-                                .height(Length::Fixed(48.0))
-                                .into()
-                        );
-                    }
+            for version in &self.versions {
+                let is_selected = self.selected_version.as_ref() == Some(&version.uuid);
+                let version_type = if version.version_type == "release" { s.version_type_release } else { s.version_type_snapshot };
+                let display_name = if version.display_name.is_empty() {
+                    version.version.clone()
+                } else {
+                    version.display_name.clone()
+                };
+
+                let mut card_items: Vec<Element<'_, Message>> = Vec::new();
+                if let Some(icon_handle) = self.version_icons.get(&version.icon_name) {
                     card_items.push(
-                        column![
-                            text(display_name).size(15),
-                            text(format!("{} · {}", version.version, version_type)).size(12),
-                        ]
-                        .spacing(2)
-                        .into()
+                        image(icon_handle.clone())
+                            .width(Length::Fixed(48.0))
+                            .height(Length::Fixed(48.0))
+                            .into()
                     );
+                }
+                card_items.push(
+                    text(display_name).size(16).into()
+                );
+                card_items.push(
+                    text(format!("{} · {}", version.version, version_type)).size(12).into()
+                );
 
-                    let card_content = column![iced::widget::Column::from_vec(card_items).spacing(8).align_x(Alignment::Center)];
-                    
-                    let card = button(card_content)
-                        .on_press(Message::VersionSelected(version.uuid.clone()))
-                        .padding([12, 16])
-                        .width(Length::Fill)
-                        .style(if is_selected { styles::button_primary } else { styles::button_secondary });
-                    
-                    row_items.push(card.into());
-                }
-                
-                while row_items.len() < cols {
-                    row_items.push(container(text("")).width(Length::Fill).into());
-                }
-                
-                rows.push(row![iced::widget::Row::from_vec(row_items).spacing(10)].into());
+                let card_content = iced::widget::Column::from_vec(card_items)
+                    .spacing(4)
+                    .align_x(Alignment::Center)
+                    .width(Length::Fill)
+                    .height(Length::Shrink);
+
+                let card = button(card_content)
+                    .on_press(Message::VersionSelected(version.uuid.clone()))
+                    .padding([8, 8])
+                    .width(Length::Fixed(120.0))
+                    .height(Length::Shrink)
+                    .style(if is_selected { styles::button_primary } else { styles::button_icon });
+
+                wrap = wrap.push(card);
             }
-            
-            container(iced::widget::Column::from_vec(rows).spacing(10))
+
+            container(wrap.spacing(10).line_spacing(10))
+                .padding(10)
         };
 
         let versions_scrollable = scrollable(versions_list).height(Length::Fill);
