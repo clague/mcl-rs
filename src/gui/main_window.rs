@@ -71,7 +71,7 @@ pub enum Message {
     /// Add version dialog messages
     AddVersion(AddVersionMessage),
     /// User selected a version from the list
-    VersionSelected(usize),
+    VersionSelected(String),
     /// User clicked the launch button
     LaunchVersion,
     /// Download progress update (0.0 to 1.0)
@@ -130,8 +130,8 @@ pub struct MainWindow {
     saved_user_info: Option<(String, String)>,
     /// List of Minecraft versions added by the user
     versions: Vec<VersionInfo>,
-    /// Index of the currently selected version
-    selected_version: Option<usize>,
+    /// Unique identifier for selected version (UUID)
+    selected_version: Option<String>,
     /// Current download progress (0.0 to 1.0)
     download_progress: f32,
     /// Add version dialog component
@@ -334,6 +334,7 @@ impl MainWindow {
                         self.config.memory = memory;
                     }
                     self.config.auto_update = self.settings.get_auto_update();
+                    self.config.max_connections = self.settings.get_max_connections();
 
                     if let Err(e) = self.config.save() {
                         error!("Failed to save config: {}", e);
@@ -352,9 +353,9 @@ impl MainWindow {
                         let icon_name = version_info.icon_name.clone();
                         let needs_fetch = !self.version_icons.contains_key(&icon_name);
                         self.versions.push(version_info.clone());
-                        self.selected_version = Some(self.versions.len() - 1);
+                        self.selected_version = Some(version_info.uuid.clone());
                         self.config.add_version(version_info.clone());
-                        info!("Version {} added and saved with icon: {}", version_info.id, icon_name);
+                        info!("Version {} added and saved with icon: {}", version_info.version, icon_name);
                         if needs_fetch {
                             return Task::perform(
                                 async move {
@@ -369,12 +370,12 @@ impl MainWindow {
                 self.add_version.update(add_version_message)
                     .map(Message::AddVersion)
             }
-            Message::VersionSelected(index) => {
-                self.selected_version = Some(index);
+            Message::VersionSelected(uuid) => {
+                self.selected_version = Some(uuid.clone());
                 self.show_version_settings = true;
-                if let Some(version) = self.versions.get(index) {
+                if let Some(version) = self.versions.iter().find(|v| v.uuid == uuid) {
                     self.editing_display_name = if version.display_name.is_empty() {
-                        version.id.clone()
+                        version.version.clone()
                     } else {
                         version.display_name.clone()
                     };
@@ -382,16 +383,16 @@ impl MainWindow {
                 Task::none()
             }
             Message::LaunchVersion => {
-                if let Some(index) = self.selected_version {
-                    if let Some(version) = self.versions.get(index) {
+                if let Some(ref uuid) = self.selected_version {
+                    if let Some(version) = self.versions.iter().find(|v| &v.uuid == uuid) {
                         if let Some(_session) = &self.session {
-                            info!("Preparing to launch version: {}", version.id);
-                            let launch_config = LaunchConfig::from_config(&self.config, &version.id);
+                            info!("Preparing to launch version: {}", version.version);
+                            let launch_config = LaunchConfig::from_config(&self.config, &version.version);
                             let version_info = version.clone();
                             return Task::perform(
                                 async move {
                                     let check_result = launch::check_version_ready(&launch_config).await;
-                                    Message::LaunchCheckResult(version_info.id.clone(), check_result)
+                                    Message::LaunchCheckResult(version_info.version.clone(), check_result)
                                 },
                                 |msg| msg,
                             );
@@ -416,7 +417,7 @@ impl MainWindow {
                     }
                     LaunchResult::NeedsDownload(files) => {
                         info!("Version {} needs download: {:?}", version_id, files);
-                        if let Some(version_info) = self.versions.iter().find(|v| v.id == version_id) {
+                        if let Some(version_info) = self.versions.iter().find(|v| v.version == version_id) {
                             let version_info = version_info.clone();
                             let config = self.config.clone();
                             return Task::perform(
@@ -520,10 +521,10 @@ impl MainWindow {
             Message::ToggleVersionSettings => {
                 if self.show_version_settings {
                     self.show_version_settings = false;
-                } else if let Some(idx) = self.selected_version {
-                    if let Some(version) = self.versions.get(idx) {
+                } else if let Some(ref uuid) = self.selected_version {
+                    if let Some(version) = self.versions.iter().find(|v| &v.uuid == uuid) {
                         let name = if version.display_name.is_empty() {
-                            version.id.clone()
+                            version.version.clone()
                         } else {
                             version.display_name.clone()
                         };
@@ -538,23 +539,23 @@ impl MainWindow {
                 Task::none()
             }
             Message::SaveDisplayName => {
-                if let Some(idx) = self.selected_version {
-                    if let Some(version) = self.versions.get_mut(idx) {
+                if let Some(ref uuid) = self.selected_version {
+                    if let Some(version) = self.versions.iter_mut().find(|v| &v.uuid == uuid) {
                         version.display_name = self.editing_display_name.clone();
                     }
                     self.config.added_versions = self.versions.clone();
                     if let Err(e) = self.config.save() {
                         error!("Failed to save display name: {}", e);
-                    } else if let Some(version) = self.versions.get(idx) {
-                        info!("Display name saved for version {}", version.id);
+                    } else if let Some(version) = self.versions.iter().find(|v| &v.uuid == uuid) {
+                        info!("Display name saved for version {}", version.version);
                     }
                 }
                 Task::none()
             }
             Message::OpenVersionFolder => {
-                if let Some(idx) = self.selected_version {
-                    if let Some(version) = self.versions.get(idx) {
-                        let folder = self.config.versions_dir.join(&version.id);
+                if let Some(ref uuid) = self.selected_version {
+                    if let Some(version) = self.versions.iter().find(|v| &v.uuid == uuid) {
+                        let folder = self.config.versions_dir.join(&version.version);
                         if folder.exists() {
                             return Task::perform(
                                 async move {
@@ -579,9 +580,10 @@ impl MainWindow {
             }
             Message::ConfirmDelete => {
                 self.show_delete_confirm = false;
-                if let Some(idx) = self.selected_version {
-                    if let Some(version) = self.versions.get(idx) {
-                        let version_id = version.id.clone();
+                if let Some(ref uuid) = self.selected_version.clone() {
+                    if let Some(idx) = self.versions.iter().position(|v| &v.uuid == uuid) {
+                        let version = &self.versions[idx];
+                        let version_id = version.version.clone();
                         let version_dir = self.config.versions_dir.join(&version_id);
 
                         if version_dir.exists() {
@@ -613,10 +615,10 @@ impl MainWindow {
                 Task::none()
             }
             Message::SelectIcon(icon_name) => {
-                if let Some(idx) = self.selected_version {
-                    if let Some(version) = self.versions.get_mut(idx) {
+                if let Some(ref uuid) = self.selected_version {
+                    if let Some(version) = self.versions.iter_mut().find(|v| &v.uuid == uuid) {
                         version.icon_name = icon_name.clone();
-                        let version_id = version.id.clone();
+                        let version_id = version.version.clone();
                         self.config.added_versions = self.versions.clone();
                         let _ = self.config.save();
                         info!("Icon changed to '{}' for version {}", icon_name, version_id);
@@ -632,20 +634,7 @@ impl MainWindow {
         let url = format!("https://api.mineatar.io/face/{}?scale=4", uuid);
         info!("Fetching avatar from: {}", url);
 
-        let mut builder = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10));
-
-        if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
-            .or_else(|_| std::env::var("https_proxy"))
-            .or_else(|_| std::env::var("ALL_PROXY"))
-            .or_else(|_| std::env::var("all_proxy"))
-        {
-            if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
-                builder = builder.proxy(proxy);
-            }
-        }
-
-        let client = builder.build().map_err(|e| e.to_string())?;
+        let client = crate::utils::net::shared_client();
         let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
 
         if !resp.status().is_success() {
@@ -710,20 +699,7 @@ impl MainWindow {
         let url = format!("https://mc-heads.net/head/{}", icon_name);
         info!("Fetching icon from: {}", url);
 
-        let mut builder = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10));
-
-        if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
-            .or_else(|_| std::env::var("https_proxy"))
-            .or_else(|_| std::env::var("ALL_PROXY"))
-            .or_else(|_| std::env::var("all_proxy"))
-        {
-            if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
-                builder = builder.proxy(proxy);
-            }
-        }
-
-        let client = builder.build().map_err(|e| e.to_string())?;
+        let client = crate::utils::net::shared_client();
         let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
 
         if !resp.status().is_success() {
@@ -825,7 +801,8 @@ impl MainWindow {
         let s = strings();
 
         let current_icon = self.selected_version
-            .and_then(|idx| self.versions.get(idx))
+            .as_ref()
+            .and_then(|uuid| self.versions.iter().find(|v| &v.uuid == uuid))
             .map(|v| v.icon_name.as_str())
             .unwrap_or("");
 
@@ -980,10 +957,10 @@ impl MainWindow {
     fn view_version_settings(&self) -> Element<'_, Message> {
         let s = strings();
 
-        let content = if let Some(idx) = self.selected_version {
-            if let Some(version) = self.versions.get(idx) {
+        let content = if let Some(ref uuid) = self.selected_version {
+            if let Some(version) = self.versions.iter().find(|v| &v.uuid == uuid) {
                 let display_name = if version.display_name.is_empty() {
-                    &version.id
+                    &version.version
                 } else {
                     &version.display_name
                 };
@@ -1017,7 +994,7 @@ impl MainWindow {
                 items.push(title_row);
                 items.push(
                     row![
-                        text(format!("{}: {}", s.version_number, version.id)).size(14),
+                        text(format!("{}: {}", s.version_number, version.version)).size(14),
                         text(format!("{}: {}", s.version_type, if version.version_type == "release" { s.version_type_release } else { s.version_type_snapshot })).size(14),
                     ]
                     .spacing(16)
@@ -1078,7 +1055,7 @@ impl MainWindow {
 
     fn view_versions_panel(&self) -> Element<'_, Message> {
         let s = strings();
-
+        
         let header = row![
             text(s.versions).size(22).width(Length::Fill),
             button(s.add)
@@ -1101,47 +1078,58 @@ impl MainWindow {
             .center_y(Length::Fill)
             .padding(30)
         } else {
-            let list = self.versions.iter().enumerate().fold(
-                column![].spacing(6),
-                |col, (index, version)| {
-                    let is_selected = self.selected_version == Some(index);
+            let cols = 3;
+            let mut rows: Vec<Element<'_, Message>> = Vec::new();
+            
+            for chunk in self.versions.chunks(cols) {
+                let mut row_items: Vec<Element<'_, Message>> = Vec::new();
+                
+                for (_i, version) in chunk.iter().enumerate() {
+                    let is_selected = self.selected_version.as_ref() == Some(&version.uuid);
                     let version_type = if version.version_type == "release" { s.version_type_release } else { s.version_type_snapshot };
                     let display_name = if version.display_name.is_empty() {
-                        version.id.clone()
+                        version.version.clone()
                     } else {
                         version.display_name.clone()
                     };
 
-                    let mut row_items: Vec<Element<'_, Message>> = Vec::new();
+                    let mut card_items: Vec<Element<'_, Message>> = Vec::new();
                     if let Some(icon_handle) = self.version_icons.get(&version.icon_name) {
-                        row_items.push(
+                        card_items.push(
                             image(icon_handle.clone())
-                                .width(Length::Fixed(32.0))
-                                .height(Length::Fixed(32.0))
+                                .width(Length::Fixed(48.0))
+                                .height(Length::Fixed(48.0))
                                 .into()
                         );
                     }
-                    row_items.push(
+                    card_items.push(
                         column![
-                            text(display_name).size(17),
-                            text(format!("{} · {}", version.id, version_type)).size(13),
+                            text(display_name).size(15),
+                            text(format!("{} · {}", version.version, version_type)).size(12),
                         ]
                         .spacing(2)
                         .into()
                     );
 
-                    let label = row![iced::widget::Row::from_vec(row_items).align_y(Alignment::Center).spacing(10)];
-
-                    let btn = button(label)
-                        .on_press(Message::VersionSelected(index))
+                    let card_content = column![iced::widget::Column::from_vec(card_items).spacing(8).align_x(Alignment::Center)];
+                    
+                    let card = button(card_content)
+                        .on_press(Message::VersionSelected(version.uuid.clone()))
+                        .padding([12, 16])
                         .width(Length::Fill)
-                        .padding([10, 15])
                         .style(if is_selected { styles::button_primary } else { styles::button_secondary });
-
-                    col.push(btn)
-                },
-            );
-            container(list)
+                    
+                    row_items.push(card.into());
+                }
+                
+                while row_items.len() < cols {
+                    row_items.push(container(text("")).width(Length::Fill).into());
+                }
+                
+                rows.push(row![iced::widget::Row::from_vec(row_items).spacing(10)].into());
+            }
+            
+            container(iced::widget::Column::from_vec(rows).spacing(10))
         };
 
         let versions_scrollable = scrollable(versions_list).height(Length::Fill);

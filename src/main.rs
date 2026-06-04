@@ -24,6 +24,9 @@ fn boot() -> (MainWindow, Task<Message>) {
     info!("Minecraft Launcher starting...");
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
     
+    let config = config::config::Config::load();
+    utils::net::init_client(config.max_connections);
+    
     let font_family = font::get_default_font_family();
     info!("Detected font family: {}", font_family);
     

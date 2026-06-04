@@ -45,11 +45,19 @@ pub struct Config {
     /// UI language preference ("en" or "zh")
     #[serde(default = "default_language")]
     pub language: String,
+    /// Maximum concurrent HTTP connections
+    #[serde(default = "default_max_connections")]
+    pub max_connections: usize,
 }
 
 /// Default language is English
 fn default_language() -> String {
     "en".to_string()
+}
+
+/// Default max connections
+fn default_max_connections() -> usize {
+    32
 }
 
 impl Config {
@@ -147,7 +155,7 @@ impl Config {
 
     /// Adds a version to the saved list
     pub fn add_version(&mut self, version: VersionInfo) {
-        if !self.added_versions.iter().any(|v| v.id == version.id) {
+        if !self.added_versions.iter().any(|v| v.version == version.version) {
             self.added_versions.push(version);
             if let Err(e) = self.save() {
                 error!("Failed to save version list: {}", e);
@@ -157,7 +165,7 @@ impl Config {
 
     /// Removes a version from the saved list
     pub fn remove_version(&mut self, version_id: &str) {
-        self.added_versions.retain(|v| v.id != version_id);
+        self.added_versions.retain(|v| v.version != version_id);
         if let Err(e) = self.save() {
             error!("Failed to save version list after removal: {}", e);
         }
@@ -189,6 +197,7 @@ impl Default for Config {
             saved_session: None,
             added_versions: Vec::new(),
             language: default_language(),
+            max_connections: default_max_connections(),
         }
     }
 }

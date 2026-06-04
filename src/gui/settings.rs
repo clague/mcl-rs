@@ -14,6 +14,7 @@ pub enum Message {
     JavaPathChanged(String),
     MemoryChanged(String),
     AutoUpdateChanged(bool),
+    MaxConnectionsChanged(String),
     SaveSettings,
     CancelSettings,
 }
@@ -22,6 +23,7 @@ pub struct Settings {
     java_path: String,
     memory: String,
     auto_update: bool,
+    max_connections: String,
     is_visible: bool,
 }
 
@@ -31,6 +33,7 @@ impl Settings {
             java_path: String::new(),
             memory: String::new(),
             auto_update: true,
+            max_connections: "32".to_string(),
             is_visible: false,
         }
     }
@@ -39,6 +42,7 @@ impl Settings {
         self.java_path = config.java_path.clone().unwrap_or_default();
         self.memory = config.memory.to_string();
         self.auto_update = config.auto_update;
+        self.max_connections = config.max_connections.to_string();
     }
 
     pub fn is_visible(&self) -> bool {
@@ -57,12 +61,17 @@ impl Settings {
         self.auto_update
     }
 
+    pub fn get_max_connections(&self) -> usize {
+        self.max_connections.parse().unwrap_or(32)
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ShowSettings => { self.is_visible = true; Task::none() }
             Message::JavaPathChanged(path) => { self.java_path = path; Task::none() }
             Message::MemoryChanged(memory) => { self.memory = memory; Task::none() }
             Message::AutoUpdateChanged(auto_update) => { self.auto_update = auto_update; Task::none() }
+            Message::MaxConnectionsChanged(max) => { self.max_connections = max; Task::none() }
             Message::SaveSettings => { self.is_visible = false; Task::none() }
             Message::CancelSettings => { self.is_visible = false; Task::none() }
         }
@@ -98,6 +107,14 @@ impl Settings {
             text(s.auto_update_on_startup).size(16),
         ].spacing(10).align_y(Alignment::Center);
 
+        let max_connections_input = column![
+            text(s.max_connections).size(16),
+            text_input("32", &self.max_connections)
+                .on_input(Message::MaxConnectionsChanged)
+                .padding(10)
+                .style(styles::text_input_style),
+        ].spacing(5);
+
         let save_button = button(container(text(s.save)).center_x(Length::Fill))
             .on_press(Message::SaveSettings)
             .width(Length::Fill)
@@ -110,7 +127,7 @@ impl Settings {
             .padding(12)
             .style(styles::button_secondary);
 
-        let content = column![title, java_path_input, memory_input, auto_update_row, row![cancel_button, save_button].spacing(10)]
+        let content = column![title, java_path_input, memory_input, auto_update_row, max_connections_input, row![cancel_button, save_button].spacing(10)]
             .spacing(20)
             .padding(25)
             .max_width(450);

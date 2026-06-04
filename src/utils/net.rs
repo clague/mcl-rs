@@ -1,52 +1,39 @@
-// Network Utilities
-// HTTP client helpers for downloading game files and API calls
-
 use reqwest::Client;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
+use log::{info, debug};
 
-/// Creates a configured HTTP client with reasonable defaults.
-///
-/// # Returns
-/// * `Client` - Configured reqwest client
-pub fn create_client() -> Client {
-    Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .expect("Failed to create HTTP client")
+static GLOBAL_CLIENT: LazyLock<Mutex<Option<Client>>> = LazyLock::new(|| Mutex::new(None));
+
+pub fn init_client(max_connections: usize) {
+    let mut guard = GLOBAL_CLIENT.lock().unwrap();
+    if guard.is_some() {
+        return;
+    }
+    info!("Initializing global HTTP client (max_connections={})", max_connections);
+    *guard = Some(create_client_with_proxy(max_connections));
 }
 
-/// Downloads content from a URL with progress tracking.
-///
-/// # Arguments
-/// * `client` - HTTP client to use
-/// * `url` - URL to download from
-/// * `progress_callback` - Callback for progress updates (0.0 to 1.0)
-///
-/// # Returns
-/// * `Ok(Vec<u8>)` - Downloaded content as bytes
-/// * `Err(String)` - Error message if download fails
-pub async fn download_with_progress(
-    client: &Client,
-    url: &str,
-    progress_callback: impl Fn(f32),
-) -> Result<Vec<u8>, String> {
-    let response = client.get(url).send().await.map_err(|e| e.to_string())?;
-    let total_size = response.content_length().unwrap_or(0);
-    
-    let mut bytes = Vec::new();
-    let mut stream = response.bytes_stream();
-    let mut downloaded: u64 = 0;
-    
-    use futures::StreamExt;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| e.to_string())?;
-        bytes.extend_from_slice(&chunk);
-        downloaded += chunk.len() as u64;
-        
-        if total_size > 0 {
-            progress_callback(downloaded as f32 / total_size as f32);
+pub fn shared_client() -> Client {
+    let guard = GLOBAL_CLIENT.lock().unwrap();
+    guard.clone().expect("HTTP client not initialized, call init_client() first")
+}
+
+fn create_client_with_proxy(max_connections: usize) -> Client {
+    let mut builder = Client::builder()
+        .pool_max_idle_per_host(max_connections)
+        .timeout(Duration::from_secs(60));
+
+    if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
+        .or_else(|_| std::env::var("https_proxy"))
+        .or_else(|_| std::env::var("ALL_PROXY"))
+        .or_else(|_| std::env::var("all_proxy"))
+    {
+        debug!("HTTP client using proxy: {}", proxy_url);
+        if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+            builder = builder.proxy(proxy);
         }
     }
-    
-    Ok(bytes)
+
+    builder.build().expect("Failed to create HTTP client")
 }
