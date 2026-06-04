@@ -10,7 +10,6 @@
 // 6. Fetch Minecraft profile
 
 use serde::{Deserialize, Serialize};
-use reqwest::Client;
 use std::collections::HashMap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -171,7 +170,7 @@ pub fn get_auth_url(state: &str) -> String {
 /// * `Err(String)` - Error message if the exchange fails
 pub async fn exchange_code_for_tokens(code: &str) -> Result<AuthTokens, String> {
     info!("Exchanging authorization code for tokens...");
-    let client = Client::new();
+    let client = crate::utils::net::shared_client();
     let mut params = HashMap::new();
     params.insert("client_id", CLIENT_ID);
     params.insert("code", code);
@@ -224,7 +223,7 @@ pub async fn exchange_code_for_tokens(code: &str) -> Result<AuthTokens, String> 
 /// * `Ok(AuthTokens)` - New access and refresh tokens
 /// * `Err(String)` - Error message if the refresh fails
 pub async fn refresh_access_token(refresh_token: &str) -> Result<AuthTokens, String> {
-    let client = Client::new();
+    let client = crate::utils::net::shared_client();
     let mut params = HashMap::new();
     params.insert("client_id", CLIENT_ID);
     params.insert("refresh_token", refresh_token);
@@ -273,7 +272,7 @@ pub async fn refresh_access_token(refresh_token: &str) -> Result<AuthTokens, Str
 /// * `Err(String)` - Error message if authentication fails
 pub async fn authenticate_xbox_live(ms_token: &str) -> Result<(String, String), String> {
     info!("Authenticating with Xbox Live...");
-    let client = Client::new();
+    let client = crate::utils::net::shared_client();
     
     let payload = serde_json::json!({
         "Properties": {
@@ -328,7 +327,7 @@ pub async fn authenticate_xbox_live(ms_token: &str) -> Result<(String, String), 
 /// * `Err(String)` - Error message if authentication fails
 pub async fn authenticate_xsts(xbl_token: &str) -> Result<(String, String), String> {
     info!("Authenticating with XSTS...");
-    let client = Client::new();
+    let client = crate::utils::net::shared_client();
     
     let payload = serde_json::json!({
         "Properties": {
@@ -392,7 +391,7 @@ pub async fn authenticate_xsts(xbl_token: &str) -> Result<(String, String), Stri
 /// * `Err(String)` - Error message if authentication fails
 pub async fn authenticate_minecraft(xsts_token: &str, xbl_uhs: &str) -> Result<MinecraftAuthResponse, String> {
     info!("Authenticating with Minecraft services...");
-    let client = Client::new();
+    let client = crate::utils::net::shared_client();
     
     let payload = serde_json::json!({
         "identityToken": format!("XBL3.0 x={};{}", xbl_uhs, xsts_token)
@@ -435,7 +434,7 @@ pub async fn authenticate_minecraft(xsts_token: &str, xbl_uhs: &str) -> Result<M
 /// * `Err(String)` - Error message if the request fails
 pub async fn get_minecraft_profile(mc_token: &str) -> Result<MinecraftProfile, String> {
     info!("Fetching Minecraft profile...");
-    let client = Client::new();
+    let client = crate::utils::net::shared_client();
 
     let response = client
         .get(MC_PROFILE_URL)

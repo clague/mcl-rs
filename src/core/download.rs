@@ -16,12 +16,8 @@ pub struct DownloadManager {
 }
 
 impl DownloadManager {
-    /// Creates a new DownloadManager with system proxy support
-    ///
-    /// # Arguments
-    /// * `download_dir` - Base directory for storing downloaded files
     pub fn new(download_dir: PathBuf) -> Self {
-        let client = Self::create_client_with_proxy();
+        let client = crate::utils::net::shared_client();
         info!("Download manager initialized, directory: {:?}", download_dir);
         Self {
             client,
@@ -29,89 +25,6 @@ impl DownloadManager {
         }
     }
 
-    /// Creates an HTTP client with system proxy support
-    fn create_client_with_proxy() -> Client {
-        let mut builder = Client::builder()
-            .pool_max_idle_per_host(16)
-            .timeout(std::time::Duration::from_secs(60));
-        
-        // Check for system proxy settings
-        let http_proxy = std::env::var("HTTP_PROXY")
-            .or_else(|_| std::env::var("http_proxy"))
-            .ok();
-        let https_proxy = std::env::var("HTTPS_PROXY")
-            .or_else(|_| std::env::var("https_proxy"))
-            .ok();
-        let all_proxy = std::env::var("ALL_PROXY")
-            .or_else(|_| std::env::var("all_proxy"))
-            .ok();
-        
-        // Apply proxy settings
-        if let Some(proxy_url) = all_proxy.or_else(|| https_proxy.or(http_proxy)) {
-            info!("Download manager using proxy: {}", proxy_url);
-            if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
-                builder = builder.proxy(proxy);
-            }
-        } else {
-            // Try to detect system proxy
-            if let Some(proxy_url) = Self::detect_system_proxy() {
-                info!("Download manager detected system proxy: {}", proxy_url);
-                if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
-                    builder = builder.proxy(proxy);
-                }
-            }
-        }
-        
-        builder.build().expect("Failed to create HTTP client")
-    }
-
-    /// Detects system proxy from desktop environment
-    fn detect_system_proxy() -> Option<String> {
-        // On Linux, check GNOME proxy settings
-        #[cfg(target_os = "linux")]
-        {
-            if let Ok(output) = std::process::Command::new("gsettings")
-                .args(["get", "org.gnome.system.proxy", "mode"])
-                .output()
-            {
-                let mode = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if mode == "'manual'" {
-                    let host = std::process::Command::new("gsettings")
-                        .args(["get", "org.gnome.system.proxy.http", "host"])
-                        .output()
-                        .ok()
-                        .and_then(|o| String::from_utf8(o.stdout).ok())
-                        .map(|s| s.trim().trim_matches('\'').to_string());
-                    
-                    let port = std::process::Command::new("gsettings")
-                        .args(["get", "org.gnome.system.proxy.http", "port"])
-                        .output()
-                        .ok()
-                        .and_then(|o| String::from_utf8(o.stdout).ok())
-                        .map(|s| s.trim().to_string());
-                    
-                    if let (Some(host), Some(port)) = (host, port) {
-                        if !host.is_empty() && !port.is_empty() {
-                            return Some(format!("http://{}:{}", host, port));
-                        }
-                    }
-                }
-            }
-        }
-        
-        None
-    }
-
-    /// Downloads a file from a URL with progress tracking
-    ///
-    /// # Arguments
-    /// * `url` - URL to download from
-    /// * `filename` - Local filename to save as
-    /// * `progress_callback` - Callback for progress updates (0.0 to 1.0)
-    ///
-    /// # Returns
-    /// * `Ok(())` - Download completed successfully
-    /// * `Err(String)` - Error message if download fails
     pub async fn download_file(
         &self,
         url: &str,
