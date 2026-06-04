@@ -152,14 +152,14 @@ impl AddVersion {
                 column![].spacing(4),
                 |col, (index, version)| {
                     let version_type = if version.version_type == "release" { s.release } else { s.snapshot };
-                    let label = format!("{} ({})", version.id, version_type);
+                    let label = format!("{} ({})", version.version, version_type);
                     col.push(radio(label, index, self.selected_index, Message::VersionSelected).style(styles::radio_style))
                 },
             );
 
             let selected_text = if let Some(index) = self.selected_index {
                 if let Some(version) = self.filtered_versions.get(index) {
-                    text(s.selected.replace("{}", &version.id)).size(16)
+                    text(s.selected.replace("{}", &version.version)).size(16)
                 } else { text("").size(16) }
             } else {
                 text(s.select_a_version).size(16)

@@ -97,7 +97,7 @@ pub async fn check_for_updates(config: &Config) -> UpdateStatus {
     
     for installed_id in &installed_versions {
         // Find the version in the manifest
-        if let Some(remote_version) = manifest.versions.iter().find(|v| v.id == *installed_id) {
+        if let Some(remote_version) = manifest.versions.iter().find(|v| v.version == *installed_id) {
             // Check if version JSON needs updating
             let version_json_path = config.versions_dir.join(installed_id).join(format!("{}.json", installed_id));
             
@@ -188,7 +188,7 @@ pub async fn check_version_update(version_id: &str, config: &Config) -> Option<V
     };
     
     // Find version in manifest
-    let remote_version = manifest.versions.iter().find(|v| v.id == version_id)?;
+    let remote_version = manifest.versions.iter().find(|v| v.version == version_id)?;
     
     // Compare timestamps
     let needs_update = if let Ok(local_metadata) = std::fs::metadata(&json_path) {

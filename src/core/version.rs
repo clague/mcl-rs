@@ -30,9 +30,13 @@ pub struct LatestVersion {
 /// Basic version information from the manifest list
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VersionInfo {
-    /// Version ID (e.g., "1.20.4", "24w03b")
-    pub id: String,
-    /// User-defined display name (defaults to version ID)
+    /// Unique identifier for this version entry
+    #[serde(default = "random_uuid")]
+    pub uuid: String,
+    /// Version number (e.g., "1.20.4", "24w03b")
+    #[serde(alias = "id")]
+    pub version: String,
+    /// User-defined display name (defaults to version number)
     #[serde(default)]
     pub display_name: String,
     /// Minecraft item name for version icon (e.g., "diamond", "emerald")
@@ -65,12 +69,26 @@ pub fn random_icon() -> String {
     MINECRAFT_ICONS[index].to_string()
 }
 
+/// Generate a random UUID v4
+pub fn random_uuid() -> String {
+    let mut rng = rand::rng();
+    let bytes: [u8; 16] = rng.random();
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3],
+        bytes[4], bytes[5],
+        (bytes[6] & 0x0f) | 0x40, bytes[7],
+        (bytes[8] & 0x3f) | 0x80, bytes[9],
+        bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+    )
+}
+
 /// Detailed version information fetched from the version JSON
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Version {
-    /// Version ID
-    pub id: String,
-    /// Display name (same as ID, may be missing in JSON)
+    /// Version number
+    pub version: String,
+    /// Display name (same as version, may be missing in JSON)
     #[serde(default)]
     pub name: String,
     /// Version type (Release, Snapshot, etc.)
@@ -365,7 +383,7 @@ impl Version {
     /// * `Err(String)` - Error message if the fetch fails
     pub async fn fetch_manifest() -> Result<VersionManifest, String> {
         info!("Fetching version manifest from Mojang...");
-        let client = create_http_client()?;
+        let client = crate::utils::net::shared_client();
         let response = client
             .get(VERSION_MANIFEST_URL)
             .send()
@@ -397,16 +415,16 @@ impl Version {
     /// * `Ok(Version)` - Detailed version information
     /// * `Err(String)` - Error message if the fetch fails
     pub async fn fetch_version_detail(version_info: &VersionInfo) -> Result<Version, String> {
-        info!("Fetching version detail for: {} ({})", version_info.id, version_info.version_type);
+        info!("Fetching version detail for: {} ({})", version_info.version, version_info.version_type);
         debug!("Version URL: {}", version_info.url);
         
-        let client = create_http_client()?;
+        let client = crate::utils::net::shared_client();
         let response = client
             .get(&version_info.url)
             .send()
             .await
             .map_err(|e| {
-                error!("Failed to fetch version detail for {}: {}", version_info.id, e);
+                error!("Failed to fetch version detail for {}: {}", version_info.version, e);
                 format!("Failed to fetch version detail: {}", e)
             })?;
         
@@ -421,7 +439,7 @@ impl Version {
         
         // Get response text for debugging
         let response_text = response.text().await.map_err(|e| {
-            error!("Failed to read response body for {}: {}", version_info.id, e);
+            error!("Failed to read response body for {}: {}", version_info.version, e);
             format!("Failed to read response body: {}", e)
         })?;
         
@@ -430,7 +448,7 @@ impl Version {
         
         // Parse JSON with detailed error reporting
         let mut version: Version = serde_json::from_str(&response_text).map_err(|e| {
-            error!("Failed to parse version detail for {}: {}", version_info.id, e);
+            error!("Failed to parse version detail for {}: {}", version_info.version, e);
             error!("Parse error details: {:?}", e);
             
             // Extract error position and show context
@@ -472,7 +490,7 @@ impl Version {
         }
         
         info!("Version detail fetched: {} (main class: {}, type: {})", 
-            version.id, version.main_class, version.version_type_raw);
+            version.version, version.main_class, version.version_type_raw);
         debug!("Version has {} libraries", version.libraries.len());
         
         Ok(version)
@@ -550,32 +568,4 @@ fn find_missing_field_path(value: &serde_json::Value, field_name: &str, path: &s
         }
         _ => {}
     }
-}
-
-/// Creates an HTTP client with system proxy support
-fn create_http_client() -> Result<reqwest::Client, String> {
-    let mut builder = reqwest::Client::builder()
-        .pool_max_idle_per_host(16)
-        .timeout(std::time::Duration::from_secs(30));
-    
-    // Check for system proxy settings
-    let http_proxy = std::env::var("HTTP_PROXY")
-        .or_else(|_| std::env::var("http_proxy"))
-        .ok();
-    let https_proxy = std::env::var("HTTPS_PROXY")
-        .or_else(|_| std::env::var("https_proxy"))
-        .ok();
-    let all_proxy = std::env::var("ALL_PROXY")
-        .or_else(|_| std::env::var("all_proxy"))
-        .ok();
-    
-    // Apply proxy settings
-    if let Some(proxy_url) = all_proxy.or_else(|| https_proxy.or(http_proxy)) {
-        info!("Using proxy: {}", proxy_url);
-        let proxy = reqwest::Proxy::all(&proxy_url)
-            .map_err(|e| format!("Invalid proxy URL: {}", e))?;
-        builder = builder.proxy(proxy);
-    }
-    
-    builder.build().map_err(|e| format!("Failed to build HTTP client: {}", e))
 }

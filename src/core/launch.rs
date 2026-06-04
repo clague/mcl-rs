@@ -150,9 +150,9 @@ pub async fn download_version_files(
     config: &Config,
     progress_callback: impl Fn(f32),
 ) -> Result<(), String> {
-    info!("Downloading version files for: {}", version_info.id);
+    info!("Downloading version files for: {}", version_info.version);
     
-    let version_dir = config.versions_dir.join(&version_info.id);
+    let version_dir = config.versions_dir.join(&version_info.version);
     let libraries_dir = config.game_dir.join("libraries");
     std::fs::create_dir_all(&version_dir)
         .map_err(|e| format!("Failed to create version directory: {}", e))?;
@@ -160,7 +160,7 @@ pub async fn download_version_files(
         .map_err(|e| format!("Failed to create libraries directory: {}", e))?;
     
     // Download version JSON if not exists
-    let json_path = version_dir.join(format!("{}.json", version_info.id));
+    let json_path = version_dir.join(format!("{}.json", version_info.version));
     let version_detail = if !json_path.exists() {
         info!("Downloading version JSON...");
         let detail = Version::fetch_version_detail(version_info).await?;
@@ -178,12 +178,12 @@ pub async fn download_version_files(
     };
     
     // Download client JAR
-    let jar_path = version_dir.join(format!("{}.jar", version_info.id));
+    let jar_path = version_dir.join(format!("{}.jar", version_info.version));
     if !jar_path.exists() {
         info!("Downloading client JAR...");
         let downloader = DownloadManager::new(version_dir.clone());
         let jar_url = &version_detail.downloads.client.url;
-        downloader.download_file(jar_url, &format!("{}.jar", version_info.id), &progress_callback).await?;
+        downloader.download_file(jar_url, &format!("{}.jar", version_info.version), &progress_callback).await?;
     }
     
     // Download libraries
@@ -262,7 +262,7 @@ pub async fn download_version_files(
         progress_callback(progress);
     }
     
-    info!("Downloaded {} libraries for version {}", downloaded_count, version_info.id);
+    info!("Downloaded {} libraries for version {}", downloaded_count, version_info.version);
     
     // Download logging config
     if let Some(logging) = &version_detail.logging {
@@ -592,8 +592,7 @@ async fn download_assets(asset_index_info: &crate::core::version::AssetIndex, as
     let index_path = indexes_dir.join(format!("{}.json", asset_index_info.id));
     let asset_index: AssetIndexFile = if !index_path.exists() {
         info!("Downloading asset index: {}", asset_index_info.id);
-        let client = create_http_client()
-            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+        let client = crate::utils::net::shared_client();
         let response = client.get(&asset_index_info.url)
             .send()
             .await
@@ -642,8 +641,7 @@ async fn download_assets(asset_index_info: &crate::core::version::AssetIndex, as
     info!("Downloading {} assets ({} already exists)...", assets_to_download.len(), skipped_count);
     
     // Download assets concurrently with system proxy support
-    let client = create_http_client()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    let client = crate::utils::net::shared_client();
     
     let downloaded_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let failed_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -722,132 +720,4 @@ async fn download_assets(asset_index_info: &crate::core::version::AssetIndex, as
     }
     
     Ok(())
-}
-
-/// Creates an HTTP client with system proxy support.
-/// Reads proxy configuration from environment variables:
-/// - HTTP_PROXY / http_proxy
-/// - HTTPS_PROXY / https_proxy
-/// - ALL_PROXY / all_proxy
-/// - NO_PROXY / no_proxy
-fn create_http_client() -> Result<reqwest::Client, String> {
-    let mut builder = reqwest::Client::builder()
-        .pool_max_idle_per_host(32)
-        .timeout(std::time::Duration::from_secs(30));
-    
-    // Check for system proxy settings
-    let http_proxy = std::env::var("HTTP_PROXY")
-        .or_else(|_| std::env::var("http_proxy"))
-        .ok();
-    let https_proxy = std::env::var("HTTPS_PROXY")
-        .or_else(|_| std::env::var("https_proxy"))
-        .ok();
-    let all_proxy = std::env::var("ALL_PROXY")
-        .or_else(|_| std::env::var("all_proxy"))
-        .ok();
-    
-    // Apply proxy settings
-    if let Some(proxy_url) = all_proxy.or_else(|| https_proxy.or(http_proxy)) {
-        info!("Using proxy: {}", proxy_url);
-        let proxy = reqwest::Proxy::all(&proxy_url)
-            .map_err(|e| format!("Invalid proxy URL: {}", e))?;
-        builder = builder.proxy(proxy);
-    } else {
-        // Try to detect system proxy from desktop environment
-        if let Some(proxy_url) = detect_system_proxy() {
-            info!("Detected system proxy: {}", proxy_url);
-            let proxy = reqwest::Proxy::all(&proxy_url)
-                .map_err(|e| format!("Invalid proxy URL: {}", e))?;
-            builder = builder.proxy(proxy);
-        } else {
-            debug!("No proxy configured");
-        }
-    }
-    
-    builder.build().map_err(|e| format!("Failed to build HTTP client: {}", e))
-}
-
-/// Detects system proxy from desktop environment (Linux/macOS/Windows)
-fn detect_system_proxy() -> Option<String> {
-    // On Linux, check for common desktop environment proxy settings
-    #[cfg(target_os = "linux")]
-    {
-        // Check GNOME proxy
-        if let Ok(output) = std::process::Command::new("gsettings")
-            .args(["get", "org.gnome.system.proxy", "mode"])
-            .output()
-        {
-            let mode = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if mode == "'manual'" {
-                // Get HTTP proxy host and port
-                let host = std::process::Command::new("gsettings")
-                    .args(["get", "org.gnome.system.proxy.http", "host"])
-                    .output()
-                    .ok()
-                    .and_then(|o| String::from_utf8(o.stdout).ok())
-                    .map(|s| s.trim().trim_matches('\'').to_string());
-                
-                let port = std::process::Command::new("gsettings")
-                    .args(["get", "org.gnome.system.proxy.http", "port"])
-                    .output()
-                    .ok()
-                    .and_then(|o| String::from_utf8(o.stdout).ok())
-                    .map(|s| s.trim().to_string());
-                
-                if let (Some(host), Some(port)) = (host, port) {
-                    if !host.is_empty() && !port.is_empty() {
-                        return Some(format!("http://{}:{}", host, port));
-                    }
-                }
-            }
-        }
-        
-        // Check environment variable for KDE
-        if let Ok(proxy) = std::env::var("KDE_PROXY") {
-            if !proxy.is_empty() {
-                return Some(proxy);
-            }
-        }
-    }
-    
-    // On macOS, check system preferences
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(output) = std::process::Command::new("networksetup")
-            .args(["-getwebproxy", "Wi-Fi"])
-            .output()
-        {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            let mut host = None;
-            let mut port = None;
-            let mut enabled = false;
-            
-            for line in output_str.lines() {
-                if line.starts_with("Enabled: Yes") {
-                    enabled = true;
-                } else if line.starts_with("Server:") {
-                    host = line.split(':').nth(1).map(|s| s.trim().to_string());
-                } else if line.starts_with("Port:") {
-                    port = line.split(':').nth(1).map(|s| s.trim().to_string());
-                }
-            }
-            
-            if enabled {
-                if let (Some(host), Some(port)) = (host, port) {
-                    if !host.is_empty() && !port.is_empty() {
-                        return Some(format!("http://{}:{}", host, port));
-                    }
-                }
-            }
-        }
-    }
-    
-    // On Windows, check registry or environment
-    #[cfg(target_os = "windows")]
-    {
-        // Windows proxy is usually set via environment variables or IE settings
-        // The environment variables are already checked above
-    }
-    
-    None
 }
