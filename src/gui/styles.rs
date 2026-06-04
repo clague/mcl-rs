@@ -215,3 +215,29 @@ pub fn radio_style(theme: &Theme, _status: iced::widget::radio::Status) -> iced:
         text_color: Some(Color::WHITE),
     }
 }
+
+/// Icon button style (transparent until hovered)
+pub fn button_icon(_theme: &Theme, status: button::Status) -> button::Style {
+    let base = button::Style {
+        background: Some(Background::Color(Color::TRANSPARENT)),
+        text_color: Color::WHITE,
+        border: Border {
+            radius: RADIUS.into(),
+            width: 0.0,
+            color: Color::TRANSPARENT,
+        },
+        ..Default::default()
+    };
+
+    match status {
+        button::Status::Hovered => button::Style {
+            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.1))),
+            ..base
+        },
+        button::Status::Pressed => button::Style {
+            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.15))),
+            ..base
+        },
+        _ => base,
+    }
+}

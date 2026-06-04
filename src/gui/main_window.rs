@@ -112,6 +112,12 @@ pub enum Message {
     CancelDelete,
     /// Version icon fetched (icon_name, bytes)
     IconFetched(String, Result<Vec<u8>, String>),
+    /// Show icon picker dialog
+    ShowIconPicker,
+    /// Hide icon picker dialog
+    HideIconPicker,
+    /// Select an icon from the picker
+    SelectIcon(String),
 }
 
 /// Main application state
@@ -158,6 +164,8 @@ pub struct MainWindow {
     editing_display_name: String,
     /// Whether delete confirmation dialog is shown
     show_delete_confirm: bool,
+    /// Whether icon picker dialog is shown
+    show_icon_picker: bool,
 }
 
 impl MainWindow {
@@ -165,28 +173,28 @@ impl MainWindow {
     pub fn new() -> Self {
         let config = Config::load();
         info!("Configuration loaded: auto_update={}", config.auto_update);
-        
+
         // Load saved versions from config
         let versions = config.added_versions.clone();
         if !versions.is_empty() {
             info!("Loaded {} saved versions", versions.len());
         }
-        
+
         // Load language preference from config
         let language = Language::from_code(&config.language);
         i18n::set_language(language);
         info!("Language set to: {}", language.display_name());
-        
+
         // Load saved user info for display during token refresh
         let saved_user_info = config.saved_session.as_ref().map(|s| {
             info!("Found saved session for user: {}", s.username);
             (s.username.clone(), s.uuid.clone())
         });
-        
+
         let refreshing_token = saved_user_info.is_some();
-        
+
         let avatar = Self::load_cached_avatar();
-        
+
         Self {
             login: Login::new(),
             session: None,
@@ -208,6 +216,7 @@ impl MainWindow {
             show_version_settings: false,
             editing_display_name: String::new(),
             show_delete_confirm: false,
+            show_icon_picker: false,
             language,
         }
     }
@@ -215,7 +224,7 @@ impl MainWindow {
     /// Returns tasks for startup operations (token refresh and update check)
     pub fn startup_tasks(&self) -> Task<Message> {
         let mut tasks = Vec::new();
-        
+
         // Check if we have a saved session to refresh
         if let Some(ref saved_session) = self.config.saved_session {
             info!("Found saved session for user: {}, refreshing token...", saved_session.username);
@@ -225,7 +234,7 @@ impl MainWindow {
                 Message::TokenRefreshResult,
             ));
         }
-        
+
         // Check for updates if enabled
         if self.config.auto_update {
             info!("Auto-update enabled, starting update check...");
@@ -235,7 +244,21 @@ impl MainWindow {
                 Message::UpdateCheckResult,
             ));
         }
-        
+
+        // Preload all Minecraft icons
+        for icon_name in crate::core::version::MINECRAFT_ICONS {
+            if !self.version_icons.contains_key(*icon_name) {
+                let icon_name = icon_name.to_string();
+                tasks.push(Task::perform(
+                    async move {
+                        let result = Self::fetch_icon_bytes(&icon_name).await;
+                        Message::IconFetched(icon_name, result)
+                    },
+                    |msg| msg,
+                ));
+            }
+        }
+
         Task::batch(tasks)
     }
 
@@ -333,7 +356,7 @@ impl MainWindow {
                         self.config.memory = memory;
                     }
                     self.config.auto_update = self.settings.get_auto_update();
-                    
+
                     if let Err(e) = self.config.save() {
                         error!("Failed to save config: {}", e);
                     } else {
@@ -611,6 +634,27 @@ impl MainWindow {
                 self.show_delete_confirm = false;
                 Task::none()
             }
+            Message::ShowIconPicker => {
+                self.show_icon_picker = true;
+                Task::none()
+            }
+            Message::HideIconPicker => {
+                self.show_icon_picker = false;
+                Task::none()
+            }
+            Message::SelectIcon(icon_name) => {
+                if let Some(idx) = self.selected_version {
+                    if let Some(version) = self.versions.get_mut(idx) {
+                        version.icon_name = icon_name.clone();
+                        let version_id = version.id.clone();
+                        self.config.added_versions = self.versions.clone();
+                        let _ = self.config.save();
+                        info!("Icon changed to '{}' for version {}", icon_name, version_id);
+                    }
+                }
+                self.show_icon_picker = false;
+                Task::none()
+            }
         }
     }
 
@@ -680,6 +724,19 @@ impl MainWindow {
     }
 
     async fn fetch_icon_bytes(icon_name: &str) -> Result<Vec<u8>, String> {
+        let cache_dir = dirs::cache_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("mcl-rs")
+            .join("icons");
+        let cache_path = cache_dir.join(format!("{}.png", icon_name));
+
+        if cache_path.exists() {
+            if let Ok(bytes) = std::fs::read(&cache_path) {
+                debug!("Icon '{}' loaded from cache ({} bytes)", icon_name, bytes.len());
+                return Ok(bytes);
+            }
+        }
+
         let url = format!("https://mc-heads.net/head/{}", icon_name);
         info!("Fetching icon from: {}", url);
 
@@ -703,9 +760,13 @@ impl MainWindow {
             return Err(format!("Icon request failed: {}", resp.status()));
         }
 
-        resp.bytes().await
-            .map(|b| b.to_vec())
-            .map_err(|e| e.to_string())
+        let bytes = resp.bytes().await.map(|b| b.to_vec()).map_err(|e| e.to_string())?;
+
+        let _ = std::fs::create_dir_all(&cache_dir);
+        let _ = std::fs::write(&cache_path, &bytes);
+        debug!("Icon '{}' cached to {:?}", icon_name, cache_path);
+
+        Ok(bytes)
     }
 
     /// Renders the main view
@@ -721,6 +782,9 @@ impl MainWindow {
         }
         if self.show_delete_confirm {
             return self.view_delete_confirm();
+        }
+        if self.show_icon_picker {
+            return self.view_icon_picker();
         }
 
         let top_bar = self.view_top_bar();
@@ -779,6 +843,59 @@ impl MainWindow {
                     .style(styles::button_danger),
             ].spacing(10),
         ].spacing(15).padding(30).max_width(400);
+
+        container(content)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .style(styles::card_container)
+            .into()
+    }
+
+    fn view_icon_picker(&self) -> Element<'_, Message> {
+        let s = strings();
+
+        let current_icon = self.selected_version
+            .and_then(|idx| self.versions.get(idx))
+            .map(|v| v.icon_name.as_str())
+            .unwrap_or("");
+
+        let mut icon_rows: Vec<Element<'_, Message>> = Vec::new();
+        for chunk in crate::core::version::MINECRAFT_ICONS.chunks(5) {
+            let mut row_items: Vec<Element<'_, Message>> = Vec::new();
+            for icon_name in chunk {
+                let icon_handle = self.version_icons.get(*icon_name).cloned();
+                let is_selected = *icon_name == current_icon;
+
+                let icon_btn = if let Some(handle) = icon_handle {
+                    button(
+                        image(handle)
+                            .width(Length::Fixed(64.0))
+                            .height(Length::Fixed(64.0))
+                    )
+                    .on_press(Message::SelectIcon(icon_name.to_string()))
+                    .padding(4)
+                    .style(if is_selected { styles::button_primary } else { styles::button_icon })
+                } else {
+                    button(text(*icon_name).size(12))
+                        .on_press(Message::SelectIcon(icon_name.to_string()))
+                        .padding([8, 12])
+                        .style(if is_selected { styles::button_primary } else { styles::button_icon })
+                };
+                row_items.push(icon_btn.into());
+            }
+            icon_rows.push(row![iced::widget::Row::from_vec(row_items).spacing(8)].into());
+        }
+
+        let content = column![
+            text(s.version_settings).size(22),
+            text("Select an icon").size(16),
+            iced::widget::Column::from_vec(icon_rows).spacing(8),
+            button(s.cancel)
+                .on_press(Message::HideIconPicker)
+                .padding([10, 20])
+                .width(Length::Fill)
+                .style(styles::button_secondary),
+        ].spacing(15).padding(25).width(Length::Shrink);
 
         container(content)
             .center_x(Length::Fill)
@@ -905,14 +1022,27 @@ impl MainWindow {
                 let title_row = if let Some(icon_handle) = self.version_icons.get(&version.icon_name) {
                     row![
                         text(s.version_settings).size(20).width(Length::Fill),
-                        image(icon_handle.clone())
-                            .width(Length::Fixed(48.0))
-                            .height(Length::Fixed(48.0)),
+                        button(
+                            image(icon_handle.clone())
+                                .width(Length::Fixed(48.0))
+                                .height(Length::Fixed(48.0))
+                        )
+                        .on_press(Message::ShowIconPicker)
+                        .padding(4)
+                        .style(styles::button_icon),
                     ]
                     .align_y(Alignment::Center)
                     .into()
                 } else {
-                    text(s.version_settings).size(20).into()
+                    row![
+                        text(s.version_settings).size(20).width(Length::Fill),
+                        button(text("?").size(24))
+                            .on_press(Message::ShowIconPicker)
+                            .padding([4, 12])
+                            .style(styles::button_icon),
+                    ]
+                    .align_y(Alignment::Center)
+                    .into()
                 };
                 items.push(title_row);
                 items.push(
@@ -978,7 +1108,7 @@ impl MainWindow {
 
     fn view_versions_panel(&self) -> Element<'_, Message> {
         let s = strings();
-        
+
         let header = row![
             text(s.versions).size(22).width(Length::Fill),
             button(s.add)
@@ -1011,7 +1141,7 @@ impl MainWindow {
                     } else {
                         version.display_name.clone()
                     };
-                    
+
                     let mut row_items: Vec<Element<'_, Message>> = Vec::new();
                     if let Some(icon_handle) = self.version_icons.get(&version.icon_name) {
                         row_items.push(
@@ -1029,15 +1159,15 @@ impl MainWindow {
                         .spacing(2)
                         .into()
                     );
-                    
+
                     let label = row![iced::widget::Row::from_vec(row_items).align_y(Alignment::Center).spacing(10)];
-                    
+
                     let btn = button(label)
                         .on_press(Message::VersionSelected(index))
                         .width(Length::Fill)
                         .padding([10, 15])
                         .style(if is_selected { styles::button_primary } else { styles::button_secondary });
-                    
+
                     col.push(btn)
                 },
             );
@@ -1099,7 +1229,7 @@ impl MainWindow {
 
     fn view_account_panel(&self) -> Element<'_, Message> {
         let s = strings();
-        
+
         let account_info = if let Some(session) = &self.session {
             column![
                 text(&session.minecraft_profile.name).size(20),
