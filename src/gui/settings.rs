@@ -1,12 +1,12 @@
 // Settings Module
 // Handles application settings like Java path, memory allocation, etc.
 
-use iced::widget::{button, column, container, row, text, text_input, checkbox};
+use iced::widget::{button, column, container, row, text, text_input, checkbox, pick_list};
 use iced::{Element, Length, Alignment, Task};
 
 use crate::config::config::Config;
 use crate::gui::styles;
-use crate::i18n::strings;
+use crate::i18n::{strings, Language};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -15,6 +15,7 @@ pub enum Message {
     MemoryChanged(String),
     AutoUpdateChanged(bool),
     MaxConnectionsChanged(String),
+    LanguageChanged(Language),
     SaveSettings,
     CancelSettings,
 }
@@ -24,6 +25,7 @@ pub struct Settings {
     memory: String,
     auto_update: bool,
     max_connections: String,
+    language: Language,
     is_visible: bool,
 }
 
@@ -34,6 +36,7 @@ impl Settings {
             memory: String::new(),
             auto_update: true,
             max_connections: "32".to_string(),
+            language: Language::English,
             is_visible: false,
         }
     }
@@ -43,6 +46,7 @@ impl Settings {
         self.memory = config.memory.to_string();
         self.auto_update = config.auto_update;
         self.max_connections = config.max_connections.to_string();
+        self.language = Language::from_code(&config.language);
     }
 
     pub fn is_visible(&self) -> bool {
@@ -65,6 +69,10 @@ impl Settings {
         self.max_connections.parse().unwrap_or(32)
     }
 
+    pub fn get_language(&self) -> Language {
+        self.language
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ShowSettings => { self.is_visible = true; Task::none() }
@@ -72,6 +80,7 @@ impl Settings {
             Message::MemoryChanged(memory) => { self.memory = memory; Task::none() }
             Message::AutoUpdateChanged(auto_update) => { self.auto_update = auto_update; Task::none() }
             Message::MaxConnectionsChanged(max) => { self.max_connections = max; Task::none() }
+            Message::LanguageChanged(lang) => { self.language = lang; Task::none() }
             Message::SaveSettings => { self.is_visible = false; Task::none() }
             Message::CancelSettings => { self.is_visible = false; Task::none() }
         }
@@ -85,6 +94,12 @@ impl Settings {
         }
 
         let title = text(s.settings).size(26);
+
+        let language_row = row![
+            text(s.language).size(16).width(Length::Fill),
+            pick_list(Language::all(), Some(self.language), Message::LanguageChanged)
+                .padding([8, 12]),
+        ].spacing(10).align_y(Alignment::Center);
 
         let java_path_input = column![
             text(s.java_path).size(16),
@@ -127,7 +142,7 @@ impl Settings {
             .padding(12)
             .style(styles::button_secondary);
 
-        let content = column![title, java_path_input, memory_input, auto_update_row, max_connections_input, row![cancel_button, save_button].spacing(10)]
+        let content = column![title, language_row, java_path_input, memory_input, auto_update_row, max_connections_input, row![cancel_button, save_button].spacing(10)]
             .spacing(20)
             .padding(25)
             .max_width(450);

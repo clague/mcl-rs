@@ -335,6 +335,14 @@ impl MainWindow {
                     }
                     self.config.auto_update = self.settings.get_auto_update();
                     self.config.max_connections = self.settings.get_max_connections();
+                    
+                    let new_lang = self.settings.get_language();
+                    if new_lang != self.language {
+                        self.language = new_lang;
+                        i18n::set_language(new_lang);
+                        self.config.save_language(new_lang.code());
+                        info!("Language changed to: {}", new_lang.display_name());
+                    }
 
                     if let Err(e) = self.config.save() {
                         error!("Failed to save config: {}", e);
