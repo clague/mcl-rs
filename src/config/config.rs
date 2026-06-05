@@ -54,9 +54,9 @@ pub struct Config {
     /// Saved session for auto-login (None if not logged in)
     #[serde(default)]
     pub saved_session: Option<SavedSession>,
-    /// List of added Minecraft versions
-    #[serde(default)]
-    pub added_versions: Vec<VersionInfo>,
+    /// List of added Minecraft instances
+    #[serde(default, alias = "added_versions")]
+    pub added_instances: Vec<VersionInfo>,
     /// UI language preference ("en" or "zh")
     #[serde(default = "default_language")]
     pub language: String,
@@ -172,21 +172,21 @@ impl Config {
         }
     }
 
-    /// Adds a version to the saved list
-    pub fn add_version(&mut self, version: VersionInfo) {
-        if !self.added_versions.iter().any(|v| v.version == version.version) {
-            self.added_versions.push(version);
+    /// Adds an instance to the saved list
+    pub fn add_instance(&mut self, version: VersionInfo) {
+        if !self.added_instances.iter().any(|v| v.version == version.version) {
+            self.added_instances.push(version);
             if let Err(e) = self.save() {
-                error!("Failed to save version list: {}", e);
+                error!("Failed to save instance list: {}", e);
             }
         }
     }
 
-    /// Removes a version from the saved list
-    pub fn remove_version(&mut self, version_id: &str) {
-        self.added_versions.retain(|v| v.version != version_id);
+    /// Removes an instance from the saved list
+    pub fn remove_instance(&mut self, version_id: &str) {
+        self.added_instances.retain(|v| v.version != version_id);
         if let Err(e) = self.save() {
-            error!("Failed to save version list after removal: {}", e);
+            error!("Failed to save instance list after removal: {}", e);
         }
     }
 
@@ -255,7 +255,7 @@ impl Default for Config {
             versions_dir: game_dir.join("versions"),
             assets_dir: game_dir.join("assets"),
             saved_session: None,
-            added_versions: Vec::new(),
+            added_instances: Vec::new(),
             language: default_language(),
             max_connections: None,
             mods_dir: Some(game_dir.join("mods")),

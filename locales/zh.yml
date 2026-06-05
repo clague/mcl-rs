@@ -1,24 +1,24 @@
 zh:
   # Main window
   app_title: "Minecraft 启动器"
-  versions: "版本列表"
+  instances: "实例列表"
   account: "账号"
   settings: "设置"
   launch: "启动"
   add: "+ 添加"
 
-  # Version panel
-  no_versions: "还没有添加版本"
-  no_versions_hint: "点击「+ 添加」来添加 Minecraft 版本"
+  # Instance panel
+  no_instances: "还没有添加实例"
+  no_instances_hint: "点击「+ 添加」来添加 Minecraft 实例"
   version_type_release: "正式版"
   version_type_snapshot: "快照版"
-  version_settings: "版本设置"
+  instance_settings: "实例设置"
   version_number: "版本号"
   version_type: "类型"
   display_name: "显示名称"
   open_folder: "打开文件夹"
-  delete_version: "删除版本"
-  delete_confirm: "删除版本文件？共享资源（libraries、assets）将保留。"
+  delete_instance: "删除实例"
+  delete_confirm: "删除实例文件？共享资源（libraries、assets）将保留。"
   choose_icon: "选择图标"
 
   # Account panel
@@ -29,7 +29,7 @@ zh:
   refreshing_token: "正在刷新令牌..."
   refreshing_session: "正在刷新会话，请稍候..."
   please_login_first: "请先登录再启动游戏"
-  select_version_to_launch: "选择一个版本启动"
+  select_instance_to_launch: "选择一个实例启动"
   session_refresh_failed: "会话刷新失败"
   refresh_session: "刷新会话"
 
@@ -75,20 +75,20 @@ zh:
   max_connections: "最大并发连接数"
   save: "保存"
 
-  # Add version dialog
-  add_new_version: "添加新版本"
+  # Add instance dialog
+  add_new_instance: "添加新实例"
   filter: "筛选: "
   select_filter: "选择筛选..."
   release: "正式版"
   snapshot: "快照版"
   all: "全部"
-  loading_versions: "正在加载版本..."
+  loading_instances: "正在加载版本..."
   please_wait: "请稍候..."
   error: "错误: {error}"
   retry: "重试"
   selected: "已选择: {version}"
   select_a_version: "选择一个版本"
-  add_version: "添加版本"
+  add_instance: "添加实例"
 
   # Language setup
   welcome_setup: "欢迎"

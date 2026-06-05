@@ -1,5 +1,5 @@
-// Add Version Module
-// Handles fetching Minecraft version manifest from Mojang and selecting versions to add
+// Add Instance Module
+// Handles fetching Minecraft version manifest from Mojang and selecting versions to add as instances
 
 use iced::widget::{button, column, container, row, text, scrollable, radio, pick_list};
 use iced::{Element, Length, Alignment, Task};
@@ -10,7 +10,7 @@ use crate::i18n::strings;
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    ShowAddVersion,
+    ShowAddInstance,
     ManifestLoaded(Result<VersionManifest, String>),
     FilterChanged(VersionFilter),
     VersionSelected(usize),
@@ -46,7 +46,7 @@ impl std::fmt::Display for VersionFilter {
     }
 }
 
-pub struct AddVersion {
+pub struct AddInstance {
     is_visible: bool,
     manifest: Option<VersionManifest>,
     filtered_versions: Vec<VersionInfo>,
@@ -56,7 +56,7 @@ pub struct AddVersion {
     error: Option<String>,
 }
 
-impl AddVersion {
+impl AddInstance {
     pub fn new() -> Self {
         Self {
             is_visible: false,
@@ -102,7 +102,7 @@ impl AddVersion {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::ShowAddVersion => {
+            Message::ShowAddInstance => {
                 self.show();
                 Task::perform(async { Version::fetch_manifest().await }, Message::ManifestLoaded)
             }
@@ -128,7 +128,7 @@ impl AddVersion {
             return container(text("")).width(Length::Fill).height(Length::Fill).into();
         }
 
-        let title = text(s.add_new_version).size(26);
+        let title = text(s.add_new_instance).size(26);
 
         let filter_row = row![
             text(s.filter).size(16),
@@ -139,13 +139,13 @@ impl AddVersion {
 
         let content: Element<Message> = if self.is_loading {
             container(
-                column![text(s.loading_versions).size(18), text(s.please_wait).size(16)]
+                column![text(s.loading_instances).size(18), text(s.please_wait).size(16)]
                     .spacing(10).align_x(Alignment::Center)
             ).center_x(Length::Fill).center_y(Length::Fill).into()
         } else if let Some(ref error) = self.error {
             column![
                 text(s.error.replace("{}", error)).size(18),
-                button(s.retry).on_press(Message::ShowAddVersion).padding([10, 20]).style(styles::button_primary),
+                button(s.retry).on_press(Message::ShowAddInstance).padding([10, 20]).style(styles::button_primary),
             ].spacing(10).into()
         } else {
             let versions_list = self.filtered_versions.iter().enumerate().fold(
@@ -171,7 +171,7 @@ impl AddVersion {
             ].spacing(10).into()
         };
 
-        let confirm_button = button(s.add_version)
+        let confirm_button = button(s.add_instance)
             .on_press_maybe(if self.selected_index.is_some() { Some(Message::ConfirmAdd) } else { None })
             .padding([12, 24]).style(styles::button_success);
 

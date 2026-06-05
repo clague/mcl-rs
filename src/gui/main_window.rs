@@ -14,7 +14,7 @@ use crate::core::launch::{self, LaunchConfig, LaunchResult};
 use crate::config::config::Config;
 use crate::gui::login::{Login, Message as LoginMessage};
 use crate::gui::settings::{Settings, Message as SettingsMessage};
-use crate::gui::add_version::{AddVersion, Message as AddVersionMessage};
+use crate::gui::add_version::{AddInstance, Message as AddInstanceMessage};
 use crate::gui::styles;
 use crate::i18n::{self, Language, strings};
 
@@ -68,10 +68,10 @@ pub enum Message {
     Login(LoginMessage),
     /// Settings-related messages
     Settings(SettingsMessage),
-    /// Add version dialog messages
-    AddVersion(AddVersionMessage),
-    /// User selected a version from the list
-    VersionSelected(String),
+    /// Add instance dialog messages
+    AddInstance(AddInstanceMessage),
+    /// User selected an instance from the list
+    InstanceSelected(String),
     /// User clicked the launch button
     LaunchVersion,
     /// Download progress update (0.0 to 1.0)
@@ -94,16 +94,16 @@ pub enum Message {
     RefreshSession,
     /// Avatar image fetched
     AvatarFetched(Result<Vec<u8>, String>),
-    /// Toggle version settings panel
-    ToggleVersionSettings,
+    /// Toggle instance settings panel
+    ToggleInstanceSettings,
     /// Display name input changed
     DisplayNameChanged(String),
     /// Save display name for selected version
     SaveDisplayName,
-    /// Open version folder in file manager
-    OpenVersionFolder,
-    /// Delete selected version
-    DeleteVersion,
+    /// Open instance folder in file manager
+    OpenInstanceFolder,
+    /// Delete selected instance
+    DeleteInstance,
     /// Show delete confirmation dialog
     ShowDeleteConfirm,
     /// Confirm version deletion
@@ -132,14 +132,14 @@ pub struct MainWindow {
     session: Option<AccountSession>,
     /// Temporary user info for display during token refresh (username, uuid)
     saved_user_info: Option<(String, String)>,
-    /// List of Minecraft versions added by the user
-    versions: Vec<VersionInfo>,
-    /// Unique identifier for selected version (UUID)
-    selected_version: Option<String>,
+    /// List of Minecraft instances added by the user
+    instances: Vec<VersionInfo>,
+    /// Unique identifier for selected instance (UUID)
+    selected_instance: Option<String>,
     /// Current download progress (0.0 to 1.0)
     download_progress: f32,
-    /// Add version dialog component
-    add_version: AddVersion,
+    /// Add instance dialog component
+    add_instance: AddInstance,
     /// Settings dialog component
     settings: Settings,
     /// Application configuration
@@ -158,12 +158,12 @@ pub struct MainWindow {
     language: Language,
     /// Cached avatar image handle
     avatar: Option<image::Handle>,
-    /// Cached version icon handles (icon_name -> Handle)
-    version_icons: HashMap<String, image::Handle>,
+    /// Cached instance icon handles (icon_name -> Handle)
+    instance_icons: HashMap<String, image::Handle>,
     /// Animation tick counter for spinner
     animation_tick: u32,
-    /// Whether version settings panel is shown
-    show_version_settings: bool,
+    /// Whether instance settings panel is shown
+    show_instance_settings: bool,
     /// Display name being edited
     editing_display_name: String,
     /// Whether delete confirmation dialog is shown
@@ -183,9 +183,9 @@ impl MainWindow {
         info!("Configuration loaded: auto_update={}", config.auto_update);
 
         // Load saved versions from config
-        let versions = config.added_versions.clone();
-        if !versions.is_empty() {
-            info!("Loaded {} saved versions", versions.len());
+        let instances = config.added_instances.clone();
+        if !instances.is_empty() {
+            info!("Loaded {} saved instances", instances.len());
         }
 
         // Load language preference from config
@@ -207,10 +207,10 @@ impl MainWindow {
             login: Login::new(),
             session: None,
             saved_user_info,
-            versions,
-            selected_version: None,
+            instances,
+            selected_instance: None,
             download_progress: 0.0,
-            add_version: AddVersion::new(),
+            add_instance: AddInstance::new(),
             settings: Settings::new(),
             config,
             update_status: None,
@@ -219,9 +219,9 @@ impl MainWindow {
             token_refresh_failed: false,
             show_account_menu: false,
             avatar,
-            version_icons: HashMap::new(),
+            instance_icons: HashMap::new(),
             animation_tick: 0,
-            show_version_settings: false,
+            show_instance_settings: false,
             editing_display_name: String::new(),
             show_delete_confirm: false,
             show_icon_picker: false,
@@ -257,7 +257,7 @@ impl MainWindow {
 
         // Preload all Minecraft icons
         for icon_name in crate::core::version::MINECRAFT_ICONS {
-            if !self.version_icons.contains_key(*icon_name) {
+            if !self.instance_icons.contains_key(*icon_name) {
                 let icon_name = icon_name.to_string();
                 tasks.push(Task::perform(
                     async move {
@@ -368,16 +368,16 @@ impl MainWindow {
                 self.settings.update(settings_message).map(Message::Settings)
             }
             // Handle add version dialog messages
-            Message::AddVersion(add_version_message) => {
-                if let AddVersionMessage::ConfirmAdd = &add_version_message {
-                    if let Some(version_info_ref) = self.add_version.get_selected_version() {
+            Message::AddInstance(add_version_message) => {
+                if let AddInstanceMessage::ConfirmAdd = &add_version_message {
+                    if let Some(version_info_ref) = self.add_instance.get_selected_version() {
                         let mut version_info = version_info_ref.clone();
                         version_info.icon_name = crate::core::version::random_icon();
                         let icon_name = version_info.icon_name.clone();
-                        let needs_fetch = !self.version_icons.contains_key(&icon_name);
-                        self.versions.push(version_info.clone());
-                        self.selected_version = Some(version_info.uuid.clone());
-                        self.config.add_version(version_info.clone());
+                        let needs_fetch = !self.instance_icons.contains_key(&icon_name);
+                        self.instances.push(version_info.clone());
+                        self.selected_instance = Some(version_info.uuid.clone());
+                        self.config.add_instance(version_info.clone());
                         info!("Version {} added and saved with icon: {}", version_info.version, icon_name);
                         if needs_fetch {
                             return Task::perform(
@@ -390,17 +390,17 @@ impl MainWindow {
                         }
                     }
                 }
-                self.add_version.update(add_version_message)
-                    .map(Message::AddVersion)
+                self.add_instance.update(add_version_message)
+                    .map(Message::AddInstance)
             }
-            Message::VersionSelected(uuid) => {
-                if self.selected_version.as_ref() == Some(&uuid) {
-                    self.selected_version = None;
-                    self.show_version_settings = false;
+            Message::InstanceSelected(uuid) => {
+                if self.selected_instance.as_ref() == Some(&uuid) {
+                    self.selected_instance = None;
+                    self.show_instance_settings = false;
                 } else {
-                    self.selected_version = Some(uuid.clone());
-                    self.show_version_settings = true;
-                    if let Some(version) = self.versions.iter().find(|v| v.uuid == uuid) {
+                    self.selected_instance = Some(uuid.clone());
+                    self.show_instance_settings = true;
+                    if let Some(version) = self.instances.iter().find(|v| v.uuid == uuid) {
                         self.editing_display_name = if version.display_name.is_empty() {
                             version.version.clone()
                         } else {
@@ -411,8 +411,8 @@ impl MainWindow {
                 Task::none()
             }
             Message::LaunchVersion => {
-                if let Some(ref uuid) = self.selected_version {
-                    if let Some(version) = self.versions.iter().find(|v| &v.uuid == uuid) {
+                if let Some(ref uuid) = self.selected_instance {
+                    if let Some(version) = self.instances.iter().find(|v| &v.uuid == uuid) {
                         if let Some(_session) = &self.session {
                             info!("Preparing to launch version: {}", version.version);
                             let launch_config = LaunchConfig::from_config(&self.config, &version.version);
@@ -445,7 +445,7 @@ impl MainWindow {
                     }
                     LaunchResult::NeedsDownload(files) => {
                         info!("Version {} needs download: {:?}", version_id, files);
-                        if let Some(version_info) = self.versions.iter().find(|v| v.version == version_id) {
+                        if let Some(version_info) = self.instances.iter().find(|v| v.version == version_id) {
                             let version_info = version_info.clone();
                             let config = self.config.clone();
                             return Task::perform(
@@ -540,24 +540,24 @@ impl MainWindow {
                 match result {
                     Ok(bytes) => {
                         info!("Icon '{}' fetched ({} bytes)", icon_name, bytes.len());
-                        self.version_icons.insert(icon_name.clone(), image::Handle::from_bytes(bytes));
+                        self.instance_icons.insert(icon_name.clone(), image::Handle::from_bytes(bytes));
                     }
                     Err(e) => warn!("Failed to fetch icon '{}': {}", icon_name, e),
                 }
                 Task::none()
             }
-            Message::ToggleVersionSettings => {
-                if self.show_version_settings {
-                    self.show_version_settings = false;
-                } else if let Some(ref uuid) = self.selected_version {
-                    if let Some(version) = self.versions.iter().find(|v| &v.uuid == uuid) {
+            Message::ToggleInstanceSettings => {
+                if self.show_instance_settings {
+                    self.show_instance_settings = false;
+                } else if let Some(ref uuid) = self.selected_instance {
+                    if let Some(version) = self.instances.iter().find(|v| &v.uuid == uuid) {
                         let name = if version.display_name.is_empty() {
                             version.version.clone()
                         } else {
                             version.display_name.clone()
                         };
                         self.editing_display_name = name;
-                        self.show_version_settings = true;
+                        self.show_instance_settings = true;
                     }
                 }
                 Task::none()
@@ -567,22 +567,22 @@ impl MainWindow {
                 Task::none()
             }
             Message::SaveDisplayName => {
-                if let Some(ref uuid) = self.selected_version {
-                    if let Some(version) = self.versions.iter_mut().find(|v| &v.uuid == uuid) {
+                if let Some(ref uuid) = self.selected_instance {
+                    if let Some(version) = self.instances.iter_mut().find(|v| &v.uuid == uuid) {
                         version.display_name = self.editing_display_name.clone();
                     }
-                    self.config.added_versions = self.versions.clone();
+                    self.config.added_instances = self.instances.clone();
                     if let Err(e) = self.config.save() {
                         error!("Failed to save display name: {}", e);
-                    } else if let Some(version) = self.versions.iter().find(|v| &v.uuid == uuid) {
+                    } else if let Some(version) = self.instances.iter().find(|v| &v.uuid == uuid) {
                         info!("Display name saved for version {}", version.version);
                     }
                 }
                 Task::none()
             }
-            Message::OpenVersionFolder => {
-                if let Some(ref uuid) = self.selected_version {
-                    if let Some(version) = self.versions.iter().find(|v| &v.uuid == uuid) {
+            Message::OpenInstanceFolder => {
+                if let Some(ref uuid) = self.selected_instance {
+                    if let Some(version) = self.instances.iter().find(|v| &v.uuid == uuid) {
                         let folder = self.config.versions_dir.join(&version.version);
                         if folder.exists() {
                             return Task::perform(
@@ -598,7 +598,7 @@ impl MainWindow {
                 }
                 Task::none()
             }
-            Message::DeleteVersion => {
+            Message::DeleteInstance => {
                 self.show_delete_confirm = true;
                 Task::none()
             }
@@ -608,9 +608,9 @@ impl MainWindow {
             }
             Message::ConfirmDelete => {
                 self.show_delete_confirm = false;
-                if let Some(ref uuid) = self.selected_version.clone() {
-                    if let Some(idx) = self.versions.iter().position(|v| &v.uuid == uuid) {
-                        let version = &self.versions[idx];
+                if let Some(ref uuid) = self.selected_instance.clone() {
+                    if let Some(idx) = self.instances.iter().position(|v| &v.uuid == uuid) {
+                        let version = &self.instances[idx];
                         let version_id = version.version.clone();
                         let version_dir = self.config.versions_dir.join(&version_id);
 
@@ -621,10 +621,10 @@ impl MainWindow {
                             }
                         }
 
-                        self.versions.remove(idx);
-                        self.config.remove_version(&version_id);
-                        self.selected_version = None;
-                        self.show_version_settings = false;
+                        self.instances.remove(idx);
+                        self.config.remove_instance(&version_id);
+                        self.selected_instance = None;
+                        self.show_instance_settings = false;
                         info!("Version {} deleted", version_id);
                     }
                 }
@@ -643,11 +643,11 @@ impl MainWindow {
                 Task::none()
             }
             Message::SelectIcon(icon_name) => {
-                if let Some(ref uuid) = self.selected_version {
-                    if let Some(version) = self.versions.iter_mut().find(|v| &v.uuid == uuid) {
+                if let Some(ref uuid) = self.selected_instance {
+                    if let Some(version) = self.instances.iter_mut().find(|v| &v.uuid == uuid) {
                         version.icon_name = icon_name.clone();
                         let version_id = version.version.clone();
-                        self.config.added_versions = self.versions.clone();
+                        self.config.added_instances = self.instances.clone();
                         let _ = self.config.save();
                         info!("Icon changed to '{}' for version {}", icon_name, version_id);
                     }
@@ -758,8 +758,8 @@ impl MainWindow {
         if self.login.is_visible() {
             return self.login.view().map(Message::Login);
         }
-        if self.add_version.is_visible() {
-            return self.add_version.view().map(Message::AddVersion);
+        if self.add_instance.is_visible() {
+            return self.add_instance.view().map(Message::AddInstance);
         }
         if self.settings.is_visible() {
             return self.settings.view().map(Message::Settings);
@@ -780,13 +780,13 @@ impl MainWindow {
         let top_bar = self.view_top_bar();
         let status_bar = self.view_status_bar();
 
-        let versions_area: Element<'_, Message> = if self.show_version_settings && self.selected_version.is_some() {
+        let versions_area: Element<'_, Message> = if self.show_instance_settings && self.selected_instance.is_some() {
             container(
                 row![
                     container(self.view_versions_panel())
                         .width(Length::FillPortion(3))
                         .height(Length::Fill),
-                    self.view_version_settings(),
+                    self.view_instance_settings(),
                 ]
                 .spacing(10)
                 .height(Length::Fill)
@@ -820,14 +820,14 @@ impl MainWindow {
     fn view_delete_confirm(&self) -> Element<'_, Message> {
         let s = strings();
         let content = column![
-            text(s.delete_version).size(22),
+            text(s.delete_instance).size(22),
             text(s.delete_confirm).size(16),
             row![
                 button(s.cancel)
                     .on_press(Message::CancelDelete)
                     .padding([10, 20])
                     .style(styles::button_secondary),
-                button(s.delete_version)
+                button(s.delete_instance)
                     .on_press(Message::ConfirmDelete)
                     .padding([10, 20])
                     .style(styles::button_danger),
@@ -844,9 +844,9 @@ impl MainWindow {
     fn view_icon_picker(&self) -> Element<'_, Message> {
         let s = strings();
 
-        let current_icon = self.selected_version
+        let current_icon = self.selected_instance
             .as_ref()
-            .and_then(|uuid| self.versions.iter().find(|v| &v.uuid == uuid))
+            .and_then(|uuid| self.instances.iter().find(|v| &v.uuid == uuid))
             .map(|v| v.icon_name.as_str())
             .unwrap_or("");
 
@@ -854,7 +854,7 @@ impl MainWindow {
         for chunk in crate::core::version::MINECRAFT_ICONS.chunks(5) {
             let mut row_items: Vec<Element<'_, Message>> = Vec::new();
             for icon_name in chunk {
-                let icon_handle = self.version_icons.get(*icon_name).cloned();
+                let icon_handle = self.instance_icons.get(*icon_name).cloned();
                 let is_selected = *icon_name == current_icon;
 
                 let icon_btn = if let Some(handle) = icon_handle {
@@ -878,7 +878,7 @@ impl MainWindow {
         }
 
         let content = column![
-            text(s.version_settings).size(22),
+            text(s.instance_settings).size(22),
             text("Select an icon").size(16),
             iced::widget::Column::from_vec(icon_rows).spacing(8),
             button(s.cancel)
@@ -998,11 +998,11 @@ impl MainWindow {
             .into()
     }
 
-    fn view_version_settings(&self) -> Element<'_, Message> {
+    fn view_instance_settings(&self) -> Element<'_, Message> {
         let s = strings();
 
-        let content = if let Some(ref uuid) = self.selected_version {
-            if let Some(version) = self.versions.iter().find(|v| &v.uuid == uuid) {
+        let content = if let Some(ref uuid) = self.selected_instance {
+            if let Some(version) = self.instances.iter().find(|v| &v.uuid == uuid) {
                 let display_name = if version.display_name.is_empty() {
                     &version.version
                 } else {
@@ -1010,9 +1010,9 @@ impl MainWindow {
                 };
 
                 let mut items: Vec<Element<'_, Message>> = Vec::new();
-                let title_row = if let Some(icon_handle) = self.version_icons.get(&version.icon_name) {
+                let title_row = if let Some(icon_handle) = self.instance_icons.get(&version.icon_name) {
                     row![
-                        text(s.version_settings).size(20).width(Length::Fill),
+                        text(s.instance_settings).size(20).width(Length::Fill),
                         button(
                             image(icon_handle.clone())
                                 .width(Length::Fixed(48.0))
@@ -1026,7 +1026,7 @@ impl MainWindow {
                     .into()
                 } else {
                     row![
-                        text(s.version_settings).size(20).width(Length::Fill),
+                        text(s.instance_settings).size(20).width(Length::Fill),
                         button(text("?").size(24))
                             .on_press(Message::ShowIconPicker)
                             .padding([4, 12])
@@ -1063,15 +1063,15 @@ impl MainWindow {
                 );
                 items.push(
                     button(container(text(s.open_folder)).center_x(Length::Fill))
-                        .on_press(Message::OpenVersionFolder)
+                        .on_press(Message::OpenInstanceFolder)
                         .padding([8, 16])
                         .width(Length::Fill)
                         .style(styles::button_secondary)
                         .into()
                 );
                 items.push(
-                    button(container(text(s.delete_version)).center_x(Length::Fill))
-                        .on_press(Message::DeleteVersion)
+                    button(container(text(s.delete_instance)).center_x(Length::Fill))
+                        .on_press(Message::DeleteInstance)
                         .padding([8, 16])
                         .width(Length::Fill)
                         .style(styles::button_danger)
@@ -1112,19 +1112,19 @@ impl MainWindow {
         let s = strings();
 
         let header = row![
-            text(s.versions).size(22).width(Length::Fill),
+            text(s.instances).size(22).width(Length::Fill),
             button(s.add)
-                .on_press(Message::AddVersion(AddVersionMessage::ShowAddVersion))
+                .on_press(Message::AddInstance(AddInstanceMessage::ShowAddInstance))
                 .padding([8, 16])
                 .style(styles::button_primary),
         ]
         .align_y(Alignment::Center);
 
-        let versions_list = if self.versions.is_empty() {
+        let versions_list = if self.instances.is_empty() {
             container(
                 column![
-                    text(s.no_versions).size(18),
-                    text(s.no_versions_hint).size(16),
+                    text(s.no_instances).size(18),
+                    text(s.no_instances_hint).size(16),
                 ]
                 .spacing(10)
                 .align_x(Alignment::Center)
@@ -1135,8 +1135,8 @@ impl MainWindow {
         } else {
             let mut wrap = iced_aw::Wrap::new();
 
-            for version in &self.versions {
-                let is_selected = self.selected_version.as_ref() == Some(&version.uuid);
+            for version in &self.instances {
+                let is_selected = self.selected_instance.as_ref() == Some(&version.uuid);
                 let version_type = if version.version_type == "release" { s.version_type_release } else { s.version_type_snapshot };
                 let display_name = if version.display_name.is_empty() {
                     version.version.clone()
@@ -1145,7 +1145,7 @@ impl MainWindow {
                 };
 
                 let mut card_items: Vec<Element<'_, Message>> = Vec::new();
-                if let Some(icon_handle) = self.version_icons.get(&version.icon_name) {
+                if let Some(icon_handle) = self.instance_icons.get(&version.icon_name) {
                     card_items.push(
                         image(icon_handle.clone())
                             .width(Length::Fixed(48.0))
@@ -1167,7 +1167,7 @@ impl MainWindow {
                     .height(Length::Shrink);
 
                 let card = button(card_content)
-                    .on_press(Message::VersionSelected(version.uuid.clone()))
+                    .on_press(Message::InstanceSelected(version.uuid.clone()))
                     .padding([8, 8])
                     .width(Length::Fixed(120.0))
                     .height(Length::Shrink)
@@ -1186,14 +1186,14 @@ impl MainWindow {
             text(s.refreshing_session).size(18)
         } else if self.session.is_none() {
             text(s.please_login_first).size(18)
-        } else if self.selected_version.is_none() {
-            text(s.select_version_to_launch).size(18)
+        } else if self.selected_instance.is_none() {
+            text(s.select_instance_to_launch).size(18)
         } else {
             text("").size(18)
         };
 
         let launch_button = button(text(s.launch).size(20))
-            .on_press_maybe(if self.selected_version.is_some() && self.session.is_some() {
+            .on_press_maybe(if self.selected_instance.is_some() && self.session.is_some() {
                 Some(Message::LaunchVersion)
             } else {
                 None

@@ -1,24 +1,24 @@
 en:
   # Main window
   app_title: "Minecraft Launcher"
-  versions: "Versions"
+  instances: "Instances"
   account: "Account"
   settings: "Settings"
   launch: "Launch"
   add: "+ Add"
 
-  # Version panel
-  no_versions: "No versions added yet"
-  no_versions_hint: "Click '+ Add' to add a Minecraft version"
+  # Instance panel
+  no_instances: "No instances added yet"
+  no_instances_hint: "Click '+ Add' to add a Minecraft instance"
   version_type_release: "Release"
   version_type_snapshot: "Snapshot"
-  version_settings: "Version Settings"
+  instance_settings: "Instance Settings"
   version_number: "Version"
   version_type: "Type"
   display_name: "Display Name"
   open_folder: "Open Folder"
-  delete_version: "Delete Version"
-  delete_confirm: "Delete version files? Shared resources (libraries, assets) will be kept."
+  delete_instance: "Delete Instance"
+  delete_confirm: "Delete instance files? Shared resources (libraries, assets) will be kept."
   choose_icon: "Choose Icon"
 
   # Account panel
@@ -29,7 +29,7 @@ en:
   refreshing_token: "Refreshing token..."
   refreshing_session: "Refreshing session, please wait..."
   please_login_first: "Please login first to launch"
-  select_version_to_launch: "Select a version to launch"
+  select_instance_to_launch: "Select an instance to launch"
   session_refresh_failed: "Session refresh failed"
   refresh_session: "Refresh Session"
 
@@ -75,20 +75,20 @@ en:
   max_connections: "Max Connections"
   save: "Save"
 
-  # Add version dialog
-  add_new_version: "Add New Version"
+  # Add instance dialog
+  add_new_instance: "Add New Instance"
   filter: "Filter: "
   select_filter: "Select filter..."
   release: "Release"
   snapshot: "Snapshot"
   all: "All"
-  loading_versions: "Loading versions..."
+  loading_instances: "Loading versions..."
   please_wait: "Please wait..."
   error: "Error: {error}"
   retry: "Retry"
   selected: "Selected: {version}"
   select_a_version: "Select a version"
-  add_version: "Add Version"
+  add_instance: "Add Instance"
 
   # Language setup
   welcome_setup: "Welcome"
