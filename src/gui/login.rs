@@ -20,6 +20,7 @@ pub enum Message {
     SubmitCode,
     AuthResult(Result<AccountSession, String>),
     CancelLogin,
+    CloseLogin,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -152,6 +153,10 @@ impl Login {
                 self.hide();
                 Task::none()
             }
+            Message::CloseLogin => {
+                self.hide();
+                Task::none()
+            }
         }
     }
 
@@ -230,7 +235,7 @@ impl Login {
                         text(s.welcome.replace("{}", &session.minecraft_profile.name)).size(18),
                         text(s.uuid.replace("{}", &session.minecraft_profile.id)).size(16),
                         button(s.close)
-                            .on_press(Message::CancelLogin)
+                            .on_press(Message::CloseLogin)
                             .padding([10, 20])
                             .style(styles::button_success),
                     ].spacing(15)

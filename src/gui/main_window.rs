@@ -312,6 +312,9 @@ impl MainWindow {
                         self.config.clear_session();
                         self.show_account_menu = false;
                     }
+                    LoginMessage::CloseLogin => {
+                        self.show_account_menu = false;
+                    }
                     LoginMessage::ShowLogin => {
                         self.show_account_menu = false;
                     }
@@ -319,7 +322,6 @@ impl MainWindow {
                         let uuid = session.minecraft_profile.id.clone();
                         self.session = Some(session.clone());
                         self.show_account_menu = false;
-                        self.avatar = None;
                         self.config.save_session(
                             session.minecraft_profile.name.clone(),
                             session.minecraft_profile.id.clone(),
@@ -327,6 +329,8 @@ impl MainWindow {
                             session.refresh_token.clone(),
                         );
                         info!("Session saved for user: {}", session.minecraft_profile.name);
+                        // Forward to login component to update state to Success
+                        let _ = self.login.update(login_message);
                         return Task::perform(
                             async move { Self::fetch_avatar_bytes(&uuid).await },
                             Message::AvatarFetched,
@@ -514,7 +518,6 @@ impl MainWindow {
                             session.refresh_token.clone(),
                         );
                         self.session = Some(session);
-                        self.avatar = None;
                         return Task::perform(
                             async move { Self::fetch_avatar_bytes(&uuid).await },
                             Message::AvatarFetched,
@@ -533,6 +536,10 @@ impl MainWindow {
                         info!("Avatar fetched successfully ({} bytes)", bytes.len());
                         Self::save_cached_avatar(&bytes);
                         self.avatar = Some(image::Handle::from_bytes(bytes));
+                    }
+                    Err(e) if e == "unchanged" => {
+                        // already loaded before, no need to reload
+                        debug!("Avatar unchanged, loaded from cache");
                     }
                     Err(e) => warn!("Failed to fetch avatar: {}", e),
                 }
@@ -672,7 +679,7 @@ impl MainWindow {
 
     async fn fetch_avatar_bytes(uuid: &str) -> Result<Vec<u8>, String> {
         let url = format!("https://api.mineatar.io/face/{}?scale=4", uuid);
-        
+
         let client = crate::utils::net::shared_client();
         let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
 
@@ -681,25 +688,25 @@ impl MainWindow {
         }
 
         let bytes = resp.bytes().await.map(|b| b.to_vec()).map_err(|e| e.to_string())?;
-        
+
         let new_hash = {
             let mut hasher = Sha1::new();
             hasher.update(&bytes);
             format!("{:x}", hasher.finalize())
         };
-        
+
         let cache_path = Self::avatar_cache_path();
         let hash_path = cache_path.with_extension("hash");
-        
+
         if hash_path.exists() {
             if let Ok(cached_hash) = std::fs::read_to_string(&hash_path) {
                 if cached_hash.trim() == new_hash {
                     debug!("Avatar unchanged (hash match), skipping update");
-                    return Ok(bytes);
+                    return Err("unchanged".to_string());
                 }
             }
         }
-        
+
         let _ = std::fs::write(&hash_path, &new_hash);
         info!("Avatar hash changed, updating cache");
         Ok(bytes)
