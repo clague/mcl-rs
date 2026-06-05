@@ -25,3 +25,6 @@ iced_aw = { version = "0.14.1", features = ["drop_down", "wrap"] }
 locale_config = "0.3"
 serde_yaml = "0.9"
 rust-i18n = "3"
+
+[dev-dependencies]
+urlencoding = "2"

@@ -112,11 +112,15 @@ pub enum Message {
     CancelDelete,
     /// Version icon fetched (icon_name, bytes)
     IconFetched(String, Result<Vec<u8>, String>),
+    /// Mod panel messages
+    ModPanel(crate::gui::mod_panel::Message),
+    /// Mod search dialog messages
+    ModSearch(crate::gui::mod_search::Message),
     /// Show icon picker dialog
     ShowIconPicker,
     /// Hide icon picker dialog
     HideIconPicker,
-    /// Select an icon from the picker
+    /// User selected an icon from the picker
     SelectIcon(String),
 }
 
@@ -166,6 +170,10 @@ pub struct MainWindow {
     show_delete_confirm: bool,
     /// Whether icon picker dialog is shown
     show_icon_picker: bool,
+    /// Mod management panel
+    mod_panel: crate::gui::mod_panel::ModPanel,
+    /// Mod search dialog
+    mod_search: crate::gui::mod_search::ModSearchDialog,
 }
 
 impl MainWindow {
@@ -217,6 +225,8 @@ impl MainWindow {
             editing_display_name: String::new(),
             show_delete_confirm: false,
             show_icon_picker: false,
+            mod_panel: crate::gui::mod_panel::ModPanel::new(),
+            mod_search: crate::gui::mod_search::ModSearchDialog::new(),
             language,
         }
     }
@@ -409,7 +419,7 @@ impl MainWindow {
                             let version_info = version.clone();
                             return Task::perform(
                                 async move {
-                                    let check_result = launch::check_version_ready(&launch_config).await;
+                                    let check_result = launch::check_version_ready(&launch_config, None).await;
                                     Message::LaunchCheckResult(version_info.version.clone(), check_result)
                                 },
                                 |msg| msg,
@@ -427,7 +437,7 @@ impl MainWindow {
                         info!("Version {} is ready, launching...", version_id);
                         if let Some(session) = &self.session {
                             let launch_config = LaunchConfig::from_config(&self.config, &version_id);
-                            match launch::launch_game(&launch_config, session) {
+                            match launch::launch_game(&launch_config, session, None) {
                                 Ok(()) => info!("Game launched successfully"),
                                 Err(e) => error!("Failed to launch game: {}", e),
                             }
@@ -440,7 +450,7 @@ impl MainWindow {
                             let config = self.config.clone();
                             return Task::perform(
                                 async move {
-                                    let result = launch::download_version_files(&version_info, &config, |_| {}).await;
+                                    let result = launch::download_version_files(&version_info, &config, None, |_| {}).await;
                                     Message::DownloadVersionResult(version_id, result)
                                 },
                                 |msg| msg,
@@ -457,7 +467,7 @@ impl MainWindow {
                         info!("Version {} files downloaded, launching...", version_id);
                         if let Some(session) = &self.session {
                             let launch_config = LaunchConfig::from_config(&self.config, &version_id);
-                            match launch::launch_game(&launch_config, session) {
+                            match launch::launch_game(&launch_config, session, None) {
                                 Ok(()) => info!("Game launched successfully"),
                                 Err(e) => error!("Failed to launch game after download: {}", e),
                             }
@@ -645,6 +655,16 @@ impl MainWindow {
                 self.show_icon_picker = false;
                 Task::none()
             }
+            Message::ModPanel(msg) => {
+                if let crate::gui::mod_panel::Message::SearchMods = &msg {
+                    self.mod_search.show();
+                    return Task::none();
+                }
+                self.mod_panel.update(msg).map(Message::ModPanel)
+            }
+            Message::ModSearch(msg) => {
+                self.mod_search.update(msg).map(Message::ModSearch)
+            }
         }
     }
 
@@ -749,6 +769,12 @@ impl MainWindow {
         }
         if self.show_icon_picker {
             return self.view_icon_picker();
+        }
+        if self.mod_search.is_visible() {
+            return self.mod_search.view().map(Message::ModSearch);
+        }
+        if self.mod_panel.is_visible() {
+            return self.mod_panel.view().map(Message::ModPanel);
         }
 
         let top_bar = self.view_top_bar();
@@ -1049,6 +1075,17 @@ impl MainWindow {
                         .padding([8, 16])
                         .width(Length::Fill)
                         .style(styles::button_danger)
+                        .into()
+                );
+                items.push(
+                    button(container(text(s.mods)).center_x(Length::Fill))
+                        .on_press(Message::ModPanel(crate::gui::mod_panel::Message::Show(
+                            version.uuid.clone(),
+                            Vec::new()
+                        )))
+                        .padding([8, 16])
+                        .width(Length::Fill)
+                        .style(styles::button_secondary)
                         .into()
                 );
 

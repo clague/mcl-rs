@@ -9,6 +9,7 @@ use std::process::Command;
 use crate::core::auth::AccountSession;
 use crate::core::version::{Version, VersionInfo, Library};
 use crate::core::download::DownloadManager;
+use crate::core::ModLoader;
 use crate::config::config::Config;
 
 /// Launch configuration for a Minecraft version
@@ -28,6 +29,8 @@ pub struct LaunchConfig {
     pub assets_dir: PathBuf,
     /// Libraries directory
     pub libraries_dir: PathBuf,
+    /// Mods directory (contains mod JARs)
+    pub mods_dir: PathBuf,
 }
 
 impl LaunchConfig {
@@ -41,6 +44,7 @@ impl LaunchConfig {
             versions_dir: config.versions_dir.clone(),
             assets_dir: config.assets_dir.clone(),
             libraries_dir: config.game_dir.join("libraries"),
+            mods_dir: config.mods_dir.clone().unwrap_or_else(|| config.game_dir.join("mods")),
         }
     }
 }
@@ -64,28 +68,24 @@ pub enum LaunchResult {
 ///
 /// # Returns
 /// * `LaunchResult` - Status of the version
-pub async fn check_version_ready(config: &LaunchConfig) -> LaunchResult {
+pub async fn check_version_ready(config: &LaunchConfig, mod_loader: Option<&ModLoader>) -> LaunchResult {
     let version_dir = config.versions_dir.join(&config.version_id);
     let jar_path = version_dir.join(format!("{}.jar", config.version_id));
     let json_path = version_dir.join(format!("{}.json", config.version_id));
     
     let mut missing_files = Vec::new();
     
-    // Check if version JSON exists
     if !json_path.exists() {
         missing_files.push(format!("{}.json", config.version_id));
         return LaunchResult::NeedsDownload(missing_files);
     }
     
-    // Check if client JAR exists
     if !jar_path.exists() {
         missing_files.push(format!("{}.jar", config.version_id));
     }
     
-    // Read version JSON to check libraries
     if let Ok(json_content) = std::fs::read_to_string(&json_path) {
         if let Ok(version) = serde_json::from_str::<Version>(&json_content) {
-            // Check each library
             for library in &version.libraries {
                 if let Some(library_path) = get_library_path(library, &config.libraries_dir) {
                     if !library_path.exists() {
@@ -96,12 +96,57 @@ pub async fn check_version_ready(config: &LaunchConfig) -> LaunchResult {
         }
     }
     
+    if let Some(loader) = mod_loader {
+        let loader_jar = match loader {
+            ModLoader::Fabric | ModLoader::Quilt => {
+                let fabric_dir = config.libraries_dir.join("net/fabricmc/fabric-loader");
+                find_fabric_loader_jar_in_dir(&fabric_dir)
+            }
+            ModLoader::Forge => {
+                config.libraries_dir
+                    .join("net/minecraftforge/forge")
+                    .join(&config.version_id)
+                    .join(format!("forge-{}-installer.jar", config.version_id))
+            }
+            ModLoader::NeoForge => {
+                config.libraries_dir
+                    .join("net/neoforged/neoforge")
+                    .join(&config.version_id)
+                    .join(format!("neoforge-{}-installer.jar", config.version_id))
+            }
+            ModLoader::Rift => PathBuf::new(),
+        };
+        if !loader_jar.as_os_str().is_empty() && !loader_jar.exists() {
+            missing_files.push(format!("mod loader: {}", loader));
+        }
+    }
+    
+    std::fs::create_dir_all(&config.mods_dir).ok();
+    
     if missing_files.is_empty() {
         LaunchResult::Success
     } else {
         info!("Missing {} files for version {}", missing_files.len(), config.version_id);
         LaunchResult::NeedsDownload(missing_files)
     }
+}
+
+fn find_fabric_loader_jar_in_dir(fabric_dir: &PathBuf) -> PathBuf {
+    if let Ok(entries) = std::fs::read_dir(fabric_dir) {
+        let mut versions: Vec<String> = entries
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        versions.sort();
+        if let Some(latest) = versions.last() {
+            let jar = fabric_dir.join(latest).join(format!("fabric-loader-{}.jar", latest));
+            if jar.exists() {
+                return jar;
+            }
+        }
+    }
+    PathBuf::new()
 }
 
 /// Gets the local path for a library based on its Maven coordinates
@@ -148,6 +193,7 @@ fn get_library_path(library: &Library, libraries_dir: &PathBuf) -> Option<PathBu
 pub async fn download_version_files(
     version_info: &VersionInfo,
     config: &Config,
+    mod_loader: Option<&ModLoader>,
     progress_callback: impl Fn(f32),
 ) -> Result<(), String> {
     info!("Downloading version files for: {}", version_info.version);
@@ -287,6 +333,11 @@ pub async fn download_version_files(
     }
     
     info!("Version files downloaded successfully");
+    
+    if let Some(loader) = mod_loader {
+        download_mod_loader(loader, &version_info.version, &libraries_dir).await?;
+    }
+    
     Ok(())
 }
 
@@ -328,6 +379,155 @@ fn should_load_library(library: &Library) -> bool {
     }
 }
 
+async fn download_mod_loader(loader: &ModLoader, mc_version: &str, libraries_dir: &PathBuf) -> Result<(), String> {
+    match loader {
+        ModLoader::Fabric => {
+            let version = resolve_latest_fabric_loader_version(mc_version).await?;
+            let jar_name = format!("fabric-loader-{}.jar", version);
+            let target_path = libraries_dir
+                .join("net/fabricmc/fabric-loader")
+                .join(&version)
+                .join(&jar_name);
+
+            if target_path.exists() {
+                info!("Fabric loader {} already downloaded", version);
+                return Ok(());
+            }
+
+            let url = format!(
+                "https://maven.fabricmc.net/net/fabricmc/fabric-loader/{}/{}",
+                version, jar_name
+            );
+            let parent = target_path.parent().ok_or("Invalid Fabric loader path")?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create Fabric loader directory: {}", e))?;
+
+            info!("Downloading Fabric loader {}...", version);
+            let downloader = DownloadManager::new(parent.to_path_buf());
+            downloader
+                .download_file(&url, &jar_name, |_| {})
+                .await
+                .map_err(|e| format!("Failed to download Fabric loader: {}", e))?;
+            Ok(())
+        }
+        ModLoader::Forge => {
+            let installer_url = format!(
+                "https://files.minecraftforge.net/net/minecraftforge/forge/{}/forge-{}-installer.jar",
+                mc_version, mc_version
+            );
+            let target_dir = libraries_dir.join("net/minecraftforge/forge").join(mc_version);
+            let installer_path = target_dir.join(format!("forge-{}-installer.jar", mc_version));
+
+            if installer_path.exists() {
+                info!("Forge {} installer already downloaded", mc_version);
+                return Ok(());
+            }
+
+            std::fs::create_dir_all(&target_dir)
+                .map_err(|e| format!("Failed to create Forge directory: {}", e))?;
+
+            info!("Downloading Forge {} installer...", mc_version);
+            let downloader = DownloadManager::new(target_dir.clone());
+            let installer_name = format!("forge-{}-installer.jar", mc_version);
+            downloader
+                .download_file(&installer_url, &installer_name, |_| {})
+                .await
+                .map_err(|e| format!("Failed to download Forge installer: {}", e))?;
+            Ok(())
+        }
+        ModLoader::NeoForge => {
+            let installer_url = format!(
+                "https://maven.neoforged.net/releases/net/neoforged/neoforge/{}/neoforge-{}-installer.jar",
+                mc_version, mc_version
+            );
+            let target_dir = libraries_dir.join("net/neoforged/neoforge").join(mc_version);
+            let installer_path = target_dir.join(format!("neoforge-{}-installer.jar", mc_version));
+
+            if installer_path.exists() {
+                info!("NeoForge {} installer already downloaded", mc_version);
+                return Ok(());
+            }
+
+            std::fs::create_dir_all(&target_dir)
+                .map_err(|e| format!("Failed to create NeoForge directory: {}", e))?;
+
+            info!("Downloading NeoForge {} installer...", mc_version);
+            let downloader = DownloadManager::new(target_dir.clone());
+            let installer_name = format!("neoforge-{}-installer.jar", mc_version);
+            downloader
+                .download_file(&installer_url, &installer_name, |_| {})
+                .await
+                .map_err(|e| format!("Failed to download NeoForge installer: {}", e))?;
+            Ok(())
+        }
+        ModLoader::Quilt => {
+            let version = resolve_latest_fabric_loader_version(mc_version).await?;
+            let jar_name = format!("quilt-loader-{}.jar", version);
+            let target_path = libraries_dir
+                .join("org/quiltmc/quilt-loader")
+                .join(&version)
+                .join(&jar_name);
+
+            if target_path.exists() {
+                info!("Quilt loader {} already downloaded", version);
+                return Ok(());
+            }
+
+            let url = format!(
+                "https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-loader/{}/{}",
+                version, jar_name
+            );
+            let parent = target_path.parent().ok_or("Invalid Quilt loader path")?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create Quilt loader directory: {}", e))?;
+
+            info!("Downloading Quilt loader {}...", version);
+            let downloader = DownloadManager::new(parent.to_path_buf());
+            downloader
+                .download_file(&url, &jar_name, |_| {})
+                .await
+                .map_err(|e| format!("Failed to download Quilt loader: {}", e))?;
+            Ok(())
+        }
+        ModLoader::Rift => {
+            info!("Rift loader download not yet supported");
+            Ok(())
+        }
+    }
+}
+
+async fn resolve_latest_fabric_loader_version(mc_version: &str) -> Result<String, String> {
+    let url = format!(
+        "https://meta.fabricmc.net/v2/versions/loader/{}",
+        mc_version
+    );
+    let client = crate::utils::net::shared_client();
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to query Fabric meta API: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Fabric meta API returned HTTP {}",
+            response.status()
+        ));
+    }
+
+    let body: Vec<serde_json::Value> = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Fabric meta response: {}", e))?;
+
+    body.first()
+        .and_then(|v| v.get("loader"))
+        .and_then(|v| v.get("version"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No Fabric loader version found".to_string())
+}
+
 /// Launches the Minecraft game.
 ///
 /// # Arguments
@@ -336,7 +536,7 @@ fn should_load_library(library: &Library) -> bool {
 ///
 /// # Returns
 /// * `Result<(), String>` - Success or error message
-pub fn launch_game(config: &LaunchConfig, session: &AccountSession) -> Result<(), String> {
+pub fn launch_game(config: &LaunchConfig, session: &AccountSession, mod_loader: Option<&ModLoader>) -> Result<(), String> {
     info!("Launching Minecraft {}...", config.version_id);
     
     let version_dir = config.versions_dir.join(&config.version_id);
@@ -359,7 +559,7 @@ pub fn launch_game(config: &LaunchConfig, session: &AccountSession) -> Result<()
     extract_natives(&version, &config.libraries_dir, &natives_dir)?;
     
     // Build classpath
-    let classpath = build_classpath(&version, &config.libraries_dir, &jar_path);
+    let classpath = build_classpath(&version, &config.libraries_dir, &jar_path, Some(&config.mods_dir));
     
     // Get asset index ID
     let asset_index_id = version.asset_index.as_ref()
@@ -384,6 +584,11 @@ pub fn launch_game(config: &LaunchConfig, session: &AccountSession) -> Result<()
                 jvm_args.push(log_arg);
             }
         }
+    }
+    
+    if let Some(loader) = mod_loader {
+        let loader_args = get_mod_loader_args(loader, &config.version_id, &config.libraries_dir);
+        jvm_args.extend(loader_args);
     }
     
     // Build game arguments
@@ -484,7 +689,7 @@ fn extract_jar(jar_path: &PathBuf, output_dir: &PathBuf) -> Result<(), String> {
 }
 
 /// Builds the classpath for the game.
-fn build_classpath(version: &Version, libraries_dir: &PathBuf, jar_path: &PathBuf) -> String {
+fn build_classpath(version: &Version, libraries_dir: &PathBuf, jar_path: &PathBuf, mods_dir: Option<&PathBuf>) -> String {
     let mut entries = vec![jar_path.to_string_lossy().to_string()];
     
     for library in &version.libraries {
@@ -499,7 +704,86 @@ fn build_classpath(version: &Version, libraries_dir: &PathBuf, jar_path: &PathBu
         }
     }
     
+    if let Some(dir) = mods_dir {
+        if dir.is_dir() {
+            if let Ok(read_dir) = std::fs::read_dir(dir) {
+                for entry in read_dir.flatten() {
+                    let path = entry.path();
+                    if path.extension().is_some_and(|ext| ext == "jar") {
+                        entries.push(path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    entries.sort();
     entries.join(":")
+}
+
+/// Returns JVM arguments specific to a mod loader.
+///
+/// Fabric uses a java agent; Forge/NeoForge append FML system properties.
+pub fn get_mod_loader_args(loader: &ModLoader, version: &str, libraries_dir: &PathBuf) -> Vec<String> {
+    match loader {
+        ModLoader::Fabric => {
+            let agent_path = find_fabric_loader_jar(libraries_dir);
+            vec![
+                "-javaagent".to_string(),
+                agent_path.to_string_lossy().to_string(),
+            ]
+        }
+        ModLoader::Forge => {
+            let mc_major = extract_major_version(version);
+            vec![
+                "--fmlForgeRel".to_string(),
+                mc_major,
+            ]
+        }
+        ModLoader::NeoForge => {
+            let mc_major = extract_major_version(version);
+            vec![
+                "--fmlNeoForgeRel".to_string(),
+                mc_major,
+            ]
+        }
+        ModLoader::Quilt => {
+            let agent_path = find_fabric_loader_jar(libraries_dir);
+            vec![
+                "-javaagent".to_string(),
+                agent_path.to_string_lossy().to_string(),
+            ]
+        }
+        ModLoader::Rift => Vec::new(),
+    }
+}
+
+fn find_fabric_loader_jar(libraries_dir: &PathBuf) -> PathBuf {
+    let fabric_dir = libraries_dir.join("net/fabricmc/fabric-loader");
+    if let Ok(entries) = std::fs::read_dir(&fabric_dir) {
+        let mut versions: Vec<String> = entries
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        versions.sort();
+        if let Some(latest) = versions.last() {
+            let jar = fabric_dir.join(latest).join(format!("fabric-loader-{}.jar", latest));
+            if jar.exists() {
+                return jar;
+            }
+        }
+    }
+    fabric_dir.join("fabric-loader.jar")
+}
+
+fn extract_major_version(version: &str) -> String {
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() >= 2 {
+        format!("{}.{}", parts[0], parts[1])
+    } else {
+        version.to_string()
+    }
 }
 
 /// Builds JVM arguments.

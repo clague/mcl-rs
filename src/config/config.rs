@@ -2,6 +2,7 @@
 // Handles application settings, session, and version list persistence
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use dirs::config_dir;
 use log::{info, error};
@@ -19,6 +20,19 @@ pub struct SavedSession {
     pub access_token: String,
     /// Microsoft refresh token for re-authentication
     pub refresh_token: String,
+}
+
+/// Information about an installed mod
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstalledModInfo {
+    pub project_id: String,
+    pub slug: String,
+    pub title: String,
+    pub version_id: String,
+    pub version_number: String,
+    pub filename: String,
+    pub enabled: bool,
+    pub loaders: Vec<String>,
 }
 
 /// Application configuration structure
@@ -49,6 +63,15 @@ pub struct Config {
     /// Maximum concurrent HTTP connections (None = use default 32)
     #[serde(default)]
     pub max_connections: Option<usize>,
+    /// Directory for mod files (defaults to game_dir/mods)
+    #[serde(default)]
+    pub mods_dir: Option<PathBuf>,
+    /// Per-version installed mods (version_uuid -> list of mods)
+    #[serde(default)]
+    pub installed_mods: HashMap<String, Vec<InstalledModInfo>>,
+    /// Optional user agent for Modrinth API requests
+    #[serde(default)]
+    pub modrinth_user_agent: Option<String>,
 }
 
 /// Default language is English
@@ -174,6 +197,47 @@ impl Config {
             error!("Failed to save language preference: {}", e);
         }
     }
+
+    /// Adds a mod to the installed list for the given version
+    pub fn add_mod(&mut self, version_uuid: &str, mod_info: InstalledModInfo) {
+        let mods = self.installed_mods.entry(version_uuid.to_string()).or_default();
+        if !mods.iter().any(|m| m.project_id == mod_info.project_id) {
+            mods.push(mod_info);
+            if let Err(e) = self.save() {
+                error!("Failed to save config after adding mod: {}", e);
+            }
+        }
+    }
+
+    /// Removes a mod from the installed list for the given version by project_id
+    pub fn remove_mod(&mut self, version_uuid: &str, project_id: &str) {
+        if let Some(mods) = self.installed_mods.get_mut(version_uuid) {
+            mods.retain(|m| m.project_id != project_id);
+            if let Err(e) = self.save() {
+                error!("Failed to save config after removing mod: {}", e);
+            }
+        }
+    }
+
+    /// Toggles the enabled state of a mod for the given version by project_id
+    pub fn toggle_mod(&mut self, version_uuid: &str, project_id: &str) {
+        if let Some(mods) = self.installed_mods.get_mut(version_uuid) {
+            if let Some(mod_info) = mods.iter_mut().find(|m| m.project_id == project_id) {
+                mod_info.enabled = !mod_info.enabled;
+                if let Err(e) = self.save() {
+                    error!("Failed to save config after toggling mod: {}", e);
+                }
+            }
+        }
+    }
+
+    /// Returns the list of installed mods for the given version
+    pub fn get_mods(&self, version_uuid: &str) -> Vec<InstalledModInfo> {
+        self.installed_mods
+            .get(version_uuid)
+            .cloned()
+            .unwrap_or_default()
+    }
 }
 
 impl Default for Config {
@@ -194,6 +258,9 @@ impl Default for Config {
             added_versions: Vec::new(),
             language: default_language(),
             max_connections: None,
+            mods_dir: Some(game_dir.join("mods")),
+            installed_mods: HashMap::new(),
+            modrinth_user_agent: None,
         }
     }
 }

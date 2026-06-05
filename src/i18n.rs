@@ -236,6 +236,14 @@ pub struct Strings {
     pub failed_to_parse_version: &'static str,
     pub failed_to_download: &'static str,
     pub failed_to_launch: &'static str,
+    pub mods: &'static str,
+    pub search_mods: &'static str,
+    pub no_mods_installed: &'static str,
+    pub no_mods_hint: &'static str,
+    pub install: &'static str,
+    pub remove: &'static str,
+    pub enable: &'static str,
+    pub disable: &'static str,
 }
 
 const EN: Strings = Strings {
@@ -323,6 +331,14 @@ const EN: Strings = Strings {
     failed_to_parse_version: "Failed to parse version detail",
     failed_to_download: "Failed to download files",
     failed_to_launch: "Failed to launch game",
+    mods: "Mods",
+    search_mods: "Search Mods",
+    no_mods_installed: "No mods installed",
+    no_mods_hint: "Click 'Search Mods' to find and install mods",
+    install: "Install",
+    remove: "Remove",
+    enable: "Enable",
+    disable: "Disable",
 };
 
 const ZH: Strings = Strings {
@@ -410,6 +426,14 @@ const ZH: Strings = Strings {
     failed_to_parse_version: "解析版本详情失败",
     failed_to_download: "下载文件失败",
     failed_to_launch: "启动游戏失败",
+    mods: "模组",
+    search_mods: "搜索模组",
+    no_mods_installed: "未安装模组",
+    no_mods_hint: "点击「搜索模组」查找并安装模组",
+    install: "安装",
+    remove: "移除",
+    enable: "启用",
+    disable: "禁用",
 };
 
 pub fn strings() -> &'static Strings {

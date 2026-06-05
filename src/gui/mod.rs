@@ -13,5 +13,11 @@ pub mod settings;
 /// Add version dialog - fetches and displays available Minecraft versions
 pub mod add_version;
 
+/// Mod management panel - displays and manages installed mods
+pub mod mod_panel;
+
+/// Mod search dialog - search and browse mods on Modrinth
+pub mod mod_search;
+
 /// Custom styles with rounded corners
 pub mod styles;
