@@ -87,6 +87,7 @@ pub fn random_uuid() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Version {
     /// Version number
+    #[serde(alias = "id")]
     pub version: String,
     /// Display name (same as version, may be missing in JSON)
     #[serde(default)]
