@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-iced = { version = "0.14", features = ["tokio", "image", "canvas"] }
-tokio = { version = "1", features = ["full"] }
+iced = { version = "0.14", default-features = false, features = ["tokio", "image", "tiny-skia", "x11", "wayland", "linux-theme-detection"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "fs", "io-util", "net", "sync"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -25,6 +25,16 @@ iced_aw = { version = "0.14.1", features = ["drop_down", "wrap"] }
 locale_config = "0.3"
 serde_yaml = "0.9"
 rust-i18n = "3"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.release.build-override]
+opt-level = "z"
 
 [dev-dependencies]
 urlencoding = "2"
