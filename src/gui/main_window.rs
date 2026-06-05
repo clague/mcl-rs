@@ -6,6 +6,8 @@ use iced::{Element, Length, Alignment, Subscription, Task, Color, Point, Rectang
 use iced_aw::widget::drop_down::DropDown;
 use log::{info, warn, error, debug};
 use std::collections::HashMap;
+use sha1::Sha1;
+use sha1::Digest;
 
 use crate::core::auth::{self, AccountSession};
 use crate::core::version::VersionInfo;
@@ -670,8 +672,7 @@ impl MainWindow {
 
     async fn fetch_avatar_bytes(uuid: &str) -> Result<Vec<u8>, String> {
         let url = format!("https://api.mineatar.io/face/{}?scale=4", uuid);
-        info!("Fetching avatar from: {}", url);
-
+        
         let client = crate::utils::net::shared_client();
         let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
 
@@ -679,9 +680,29 @@ impl MainWindow {
             return Err(format!("Avatar request failed: {}", resp.status()));
         }
 
-        resp.bytes().await
-            .map(|b| b.to_vec())
-            .map_err(|e| e.to_string())
+        let bytes = resp.bytes().await.map(|b| b.to_vec()).map_err(|e| e.to_string())?;
+        
+        let new_hash = {
+            let mut hasher = Sha1::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        };
+        
+        let cache_path = Self::avatar_cache_path();
+        let hash_path = cache_path.with_extension("hash");
+        
+        if hash_path.exists() {
+            if let Ok(cached_hash) = std::fs::read_to_string(&hash_path) {
+                if cached_hash.trim() == new_hash {
+                    debug!("Avatar unchanged (hash match), skipping update");
+                    return Ok(bytes);
+                }
+            }
+        }
+        
+        let _ = std::fs::write(&hash_path, &new_hash);
+        info!("Avatar hash changed, updating cache");
+        Ok(bytes)
     }
 
     fn avatar_cache_path() -> std::path::PathBuf {
