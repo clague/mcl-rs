@@ -149,7 +149,7 @@ impl AddInstance {
             ].spacing(10).into()
         } else {
             let versions_list = self.filtered_versions.iter().enumerate().fold(
-                column![].spacing(4),
+                column![].spacing(4).width(Length::Fill),
                 |col, (index, version)| {
                     let version_type = if version.version_type == "release" { s.release } else { s.snapshot };
                     let label = format!("{} ({})", version.version, version_type);
@@ -182,7 +182,7 @@ impl AddInstance {
         let buttons = row![cancel_button, confirm_button].spacing(10).align_y(Alignment::Center);
 
         let main_content = column![title, filter_row, content, buttons]
-            .spacing(15).padding(25);
+            .spacing(15).padding(25).max_width(500);
 
         container(main_content)
             .width(Length::Fill).height(Length::Fill)
